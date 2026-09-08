@@ -7,6 +7,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.core.config import settings
+from app.core.locations import normalize_state
 from app.core.logging import logger
 from app.models.client import ClientInfo, CompetitorConfig
 from app.models.product import PharmacyEnum, PriceQuote, ProductItem, ScrapeStatusEnum
@@ -52,7 +53,7 @@ class ExcelService:
                         if text.upper().startswith("CIDADE:"):
                             city = text.split(":", 1)[1].strip()
                         elif text.upper().startswith("ESTADO:"):
-                            state = text.split(":", 1)[1].strip()
+                            state = normalize_state(text.split(":", 1)[1])
                         elif text.upper().startswith("CEP:"):
                             cep = re.sub(r"\D", "", text.split(":", 1)[1]) or None
                         elif ".com" in text.lower() or "farmacia" in text.lower():
@@ -137,7 +138,7 @@ class ExcelService:
                 elif v_upper.startswith("CIDADE:"):
                     city = val.split(":", 1)[1].strip()
                 elif v_upper.startswith("ESTADO:"):
-                    state = val.split(":", 1)[1].strip()
+                    state = normalize_state(val.split(":", 1)[1])
                 elif v_upper.startswith("CEP:"):
                     cep = re.sub(r"\D", "", val.split(":", 1)[1]) or None
                 elif ".com" in val.lower():

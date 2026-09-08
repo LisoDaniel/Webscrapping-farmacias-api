@@ -6,6 +6,8 @@ from typing import Iterable, Optional, TYPE_CHECKING
 
 from sqlalchemy import select
 
+from app.core.locations import normalize_state
+from app.core.logging import logger
 from app.db.models import PriceQuoteRecord, ProductRecord, ScrapeRunRecord
 from app.db.session import Database, database
 from app.models.client import ClientInfo
@@ -21,6 +23,14 @@ class PriceHistoryService:
 
     def __init__(self, db: Database = database):
         self.db = db
+
+    @staticmethod
+    def _fit(value: Optional[str], length: int) -> Optional[str]:
+        """Ajusta o texto ao limite da coluna em vez de deixar o INSERT falhar."""
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text[:length] if text else None
 
     async def _get_or_create_product(
         self,
@@ -63,48 +73,61 @@ class PriceHistoryService:
         city: Optional[str],
         state: Optional[str],
         items: Iterable[tuple[Optional[str], str, Optional[str], Optional[str], PriceQuote]],
-    ) -> str:
-        async with self.db.session_factory() as session:
-            async with session.begin():
-                run = ScrapeRunRecord(
-                    source=source,
-                    query=query,
-                    ean=ean,
-                    client_name=client_name,
-                    cep=cep,
-                    city=city,
-                    state=state,
-                )
-                session.add(run)
-                await session.flush()
-
-                for product_ean, product_name, laboratory, product_group, quote in items:
-                    product = await self._get_or_create_product(
-                        session,
-                        product_ean or quote.ean,
-                        product_name or quote.product_name or query or "Produto sem identificação",
-                        laboratory,
-                        product_group,
+    ) -> Optional[str]:
+        try:
+            async with self.db.session_factory() as session:
+                async with session.begin():
+                    run = ScrapeRunRecord(
+                        source=source,
+                        query=self._fit(query, 500),
+                        ean=self._fit(ean, 14),
+                        client_name=self._fit(client_name, 255),
+                        cep=self._fit(cep, 8),
+                        city=self._fit(city, 120),
+                        # Última linha de defesa antes do varchar(2): as
+                        # planilhas trazem o estado por extenso com frequência.
+                        state=normalize_state(state),
                     )
-                    session.add(
-                        PriceQuoteRecord(
-                            scrape_run_id=run.id,
-                            product_id=product.id,
-                            pharmacy_key=quote.pharmacy_key.value,
-                            pharmacy_name=quote.pharmacy_name,
-                            price=quote.price,
-                            list_price=quote.list_price,
-                            discount_percentage=quote.discount_percentage,
-                            available=quote.available,
-                            status=quote.status.value,
-                            product_url=quote.product_url,
-                            error_message=quote.error_message,
-                            scraped_at=quote.scraped_at,
+                    session.add(run)
+                    await session.flush()
+
+                    for product_ean, product_name, laboratory, product_group, quote in items:
+                        product = await self._get_or_create_product(
+                            session,
+                            product_ean or quote.ean,
+                            product_name
+                            or quote.product_name
+                            or query
+                            or "Produto sem identificação",
+                            laboratory,
+                            product_group,
                         )
-                    )
-                return run.id
+                        session.add(
+                            PriceQuoteRecord(
+                                scrape_run_id=run.id,
+                                product_id=product.id,
+                                pharmacy_key=quote.pharmacy_key.value,
+                                pharmacy_name=quote.pharmacy_name,
+                                price=quote.price,
+                                list_price=quote.list_price,
+                                discount_percentage=quote.discount_percentage,
+                                available=quote.available,
+                                status=quote.status.value,
+                                product_url=quote.product_url,
+                                error_message=quote.error_message,
+                                scraped_at=quote.scraped_at,
+                            )
+                        )
+                    return run.id
+        except Exception as exc:
+            # O histórico é um subproduto da coleta. A consulta e o relatório já
+            # foram produzidos com sucesso neste ponto — perdê-los porque o
+            # banco recusou uma linha seria trocar o entregável pelo registro
+            # dele. Falha alto no log e segue.
+            logger.exception(f"Falha ao gravar o histórico de preços ({source}): {exc}")
+            return None
 
-    async def record_search(self, response: SearchResponse) -> str:
+    async def record_search(self, response: SearchResponse) -> Optional[str]:
         """Salva uma pesquisa avulsa feita pela API ou CLI."""
         items = [
             (quote.ean or response.ean, quote.product_name or response.query, None, None, quote)
@@ -123,7 +146,7 @@ class PriceHistoryService:
         cep: Optional[str] = None,
         city: Optional[str] = None,
         state: Optional[str] = None,
-    ) -> str:
+    ) -> Optional[str]:
         """Salva todas as cotações de uma varredura de planilha em uma execução."""
         items = [
             (product.ean, product.name, product.laboratory, product.group, quote)
@@ -135,7 +158,7 @@ class PriceHistoryService:
             cep=cep or client.cep, city=city or client.city, state=state or client.state, items=items,
         )
 
-    async def record_validation(self, report: "ValidationReport") -> str:
+    async def record_validation(self, report: "ValidationReport") -> Optional[str]:
         """Armazena também o resultado técnico da validação dos scrapers."""
         items = [
             (

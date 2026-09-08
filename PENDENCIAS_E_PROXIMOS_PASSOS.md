@@ -64,6 +64,16 @@ O índice de texto livre `ft=` **não** cobre EAN em todas as lojas — era por 
 - [x] **Histórico de Preços (PostgreSQL)**:
   - Persistência de produtos, execuções de coleta e cotações por farmácia.
   - Consulta de histórico e último preço conhecido por EAN em `/api/v1/history/{ean}`.
+  - **O histórico é best-effort.** Gravar é um subproduto da coleta: quando o
+    banco recusa uma linha ou está fora do ar, a falha vai para o log e a
+    execução segue. O relatório e a consulta já estão prontos nesse ponto —
+    perdê-los para preservar o registro seria trocar o entregável pelo recibo.
+  - O estado vindo da planilha é normalizado para a sigla de duas letras em
+    `app/core/locations.py`. As cinco planilhas de cliente traziam o estado por
+    extenso ("RIO GRANDE DO SUL", "PARANÁ", …), o que estourava o `varchar(2)`
+    de `scrape_runs.state` e derrubava a varredura **antes** de gerar o
+    relatório. Sem `--cep`, `scrape-client` não funcionava para nenhum cliente;
+    com `--cep` o ViaCEP devolvia a sigla e o defeito passava despercebido.
 - [ ] **Ampliar o acervo de farmácias consultadas**:
   - Mapear novas redes regionais e nacionais, priorizando catálogos públicos ou APIs/feed de preços autorizados.
   - Validar cada integração por EAN e CEP antes de liberá-la para as varreduras de clientes.

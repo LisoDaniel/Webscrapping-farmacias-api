@@ -3,7 +3,14 @@ import unittest
 from pathlib import Path
 
 from app.db.session import Database
-from app.models.product import PharmacyEnum, PriceQuote, ScrapeStatusEnum, SearchResponse
+from app.models.client import ClientInfo
+from app.models.product import (
+    PharmacyEnum,
+    PriceQuote,
+    ProductItem,
+    ScrapeStatusEnum,
+    SearchResponse,
+)
 from app.services.price_history_service import PriceHistoryService
 
 
@@ -59,3 +66,63 @@ class PriceHistoryServiceTests(unittest.IsolatedAsyncioTestCase):
             PharmacyEnum.PAGUE_MENOS,
             PharmacyEnum.PANVEL,
         })
+
+    async def test_spelled_out_state_is_persisted_as_uf(self):
+        """A planilha da CARIN diz "RIO GRANDE DO SUL"; a coluna aceita 2 letras.
+
+        Sem normalizar, o INSERT estoura com StringDataRightTruncationError e
+        derruba a varredura inteira antes de o relatório ser gerado.
+        """
+        client = ClientInfo(
+            id="1167_carin",
+            folder_name="1167 CARIN",
+            file_path="Clientes/1167 CARIN/planilha.xlsx",
+            client_name="1167 CARIN",
+            city="VENÂNCIO AIRES (CARIN)",
+            state="RIO GRANDE DO SUL",
+        )
+        product = ProductItem(
+            ean="7891058003555",
+            name="PURAN T4 12,5MCG 30COMP",
+            quotes=[
+                PriceQuote(
+                    pharmacy_key=PharmacyEnum.SAO_JOAO,
+                    pharmacy_name="Farmácias São João",
+                    ean="7891058003555",
+                    price=3.91,
+                    status=ScrapeStatusEnum.SUCCESS,
+                )
+            ],
+        )
+
+        run_id = await self.service.record_client_scrape(client, [product])
+        self.assertIsNotNone(run_id)
+
+        history = await self.service.get_history("7891058003555")
+        self.assertEqual(history[0].state, "RS")
+        self.assertEqual(history[0].city, "VENÂNCIO AIRES (CARIN)")
+
+    async def test_history_failure_never_breaks_the_caller(self):
+        """O relatório já está pronto neste ponto: o banco não pode custá-lo."""
+
+        def exploding_session_factory():
+            raise RuntimeError("banco indisponível")
+
+        self.service.db.session_factory = exploding_session_factory
+
+        response = SearchResponse(
+            query="7891058003555",
+            ean="7891058003555",
+            total_found=0,
+            quotes=[
+                PriceQuote(
+                    pharmacy_key=PharmacyEnum.SAO_JOAO,
+                    pharmacy_name="Farmácias São João",
+                    ean="7891058003555",
+                    status=ScrapeStatusEnum.SUCCESS,
+                    price=3.91,
+                )
+            ],
+        )
+
+        self.assertIsNone(await self.service.record_search(response))
