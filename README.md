@@ -32,6 +32,27 @@ Acesse a documentação Swagger interativa em:
 Interface web:
 👉 [http://localhost:8000/dashboard](http://localhost:8000/dashboard)
 
+### Banco de dados PostgreSQL
+
+Com o Docker Desktop em execução, inicie o banco local:
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Na primeira inicialização da API, as tabelas `products`, `scrape_runs` e
+`price_quotes` são criadas automaticamente. O banco mantém os dados no volume
+Docker `postgres_data`, inclusive após reiniciar o container.
+
+As credenciais locais de desenvolvimento estão em `.env.example`. Para um
+ambiente compartilhado, crie um `.env` com senha própria antes de subir o
+container. Para interromper o banco sem apagar o histórico:
+
+```bash
+docker compose stop
+```
+
 ### 2. Linha de Comando (CLI)
 
 #### Pesquisar um produto avulso por EAN:
@@ -84,6 +105,16 @@ de usar a rotina como referência operacional, inclua outros EANs públicos no
 arquivo de fixtures.
 Por exigência de conformidade, a Araujo fica fora da validação automática até
 haver acesso autorizado ao catálogo.
+
+### Histórico de preços
+
+Toda pesquisa da API, varredura de planilha e validação de scraper passa a ser
+gravada automaticamente no PostgreSQL. Consulte pela API:
+
+```text
+GET /api/v1/history/7891058003555
+GET /api/v1/history/7891058003555/summary
+```
 
 ---
 

@@ -55,6 +55,9 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
   - Além de `.xlsx`, permitir exportação em `.json` e `.csv`.
 - [x] **Dashboard Web Frontend**:
   - Interface visual simples (React ou HTML/Tailwind) para que o consultor do Instituto Bulla faça upload de planilhas e visualize o comparativo de preços na tela.
+- [x] **Histórico de Preços (PostgreSQL)**:
+  - Persistência de produtos, execuções de coleta e cotações por farmácia.
+  - Consulta de histórico e último preço conhecido por EAN em `/api/v1/history/{ean}`.
 
 ---
 

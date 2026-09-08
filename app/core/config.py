@@ -14,6 +14,13 @@ class Settings(BaseSettings):
     SCRAPER_MAX_CONCURRENCY: int = 5
     SCRAPER_RETRY_ATTEMPTS: int = 2
 
+    # Banco de dados. O padrão corresponde ao PostgreSQL do docker-compose.
+    DATABASE_URL: str = (
+        "postgresql+asyncpg://webscrapping:webscrapping_local@"
+        "localhost:5432/webscrapping_farmacias"
+    )
+    DATABASE_ECHO: bool = False
+
     # Paths
     BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
     CLIENTS_DIR: Path = BASE_DIR / "Clientes"

@@ -13,8 +13,10 @@ from app.services.scraper_service import ScraperService
 from app.services.cep_service import CepService
 from app.services.report_export_service import ReportExportService
 from app.services.validation_service import ScraperValidationService
+from app.services.price_history_service import PriceHistoryService
 
 console = Console()
+price_history_service = PriceHistoryService()
 
 
 def cmd_list_clients():
@@ -55,6 +57,7 @@ async def cmd_search(ean: str = None, query: str = None, cep: str = None):
 
     with console.status(f"[bold green]Pesquisando preços para EAN={ean or '-'} Query='{query or '-'}'..."):
         resp = await service.search(req)
+    await price_history_service.record_search(resp)
 
     table = Table(title=f"Resultados de Preços: {resp.query}", header_style="bold blue")
     table.add_column("Farmácia", style="cyan", no_wrap=True)
@@ -136,7 +139,7 @@ async def cmd_scrape_client(folder: str, limit: int = None, cep: str = None):
     ) as progress:
         task = progress.add_task("[green]Varrendo produtos...", total=len(products))
 
-        for prod in products:
+    for prod in products:
             progress.update(task, description=f"[green]Pesquisando: {prod.name[:25]}...")
             await service.scrape_product_item(
                 prod, target_pharmacies,
@@ -145,6 +148,14 @@ async def cmd_scrape_client(folder: str, limit: int = None, cep: str = None):
                 state=location.state if location else client_info.state,
             )
             progress.advance(task)
+
+    await price_history_service.record_client_scrape(
+        client_info,
+        products,
+        cep=location.cep if location else None,
+        city=location.city if location else client_info.city,
+        state=location.state if location else client_info.state,
+    )
 
     # Gerar planilha Excel
     output_path = ExcelService.generate_enriched_report(client_info, products, target_pharmacies)
@@ -170,6 +181,7 @@ async def cmd_validate_scrapers(
             report = await validator.run_from_fixture(
                 path=fixture, pharmacies=selected, cep=cep, limit=limit,
             )
+            await price_history_service.record_validation(report)
     except ValueError as exc:
         console.print(f"[red]Erro de validação: {exc}[/red]")
         return

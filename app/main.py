@@ -1,16 +1,19 @@
+from contextlib import asynccontextmanager
 from datetime import datetime
 import io
 import mimetypes
 from pathlib import Path
 import time
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form
+from fastapi import FastAPI, HTTPException, UploadFile, File, BackgroundTasks, Form, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, RedirectResponse
 
 from app.core.config import settings
 from app.core.logging import logger
+from app.db.session import database
 from app.models.client import ClientInfo, ClientScrapeRequest, ClientScrapeResponse, ScrapeJobResponse
+from app.models.history import PriceHistoryItem, PriceHistorySummary
 from app.models.product import PharmacyEnum, SearchRequest, SearchResponse
 from app.scrapers.registry import ScraperRegistry
 from app.services.excel_service import ExcelService
@@ -18,6 +21,16 @@ from app.services.scraper_service import ScraperService
 from app.services.cep_service import CepService
 from app.services.job_service import ScrapeJobService
 from app.services.report_export_service import ReportExportService
+from app.services.price_history_service import PriceHistoryService
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """Inicializa o esquema do banco antes de aceitar requisições."""
+    await database.create_schema()
+    logger.info("Banco de dados conectado e esquema verificado.")
+    yield
+    await database.dispose()
+
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -25,6 +38,7 @@ app = FastAPI(
     description="API de Web Scraping e Comparador de Preços para Redes de Farmácias do Instituto Bulla.",
     docs_url="/docs",
     redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # Habilitar CORS para permitir consumo por frontends web ou dashboards
@@ -38,6 +52,7 @@ app.add_middleware(
 
 scraper_service = ScraperService()
 job_service = ScrapeJobService()
+price_history_service = PriceHistoryService()
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -56,8 +71,10 @@ async def dashboard():
 @app.get("/health", tags=["Sistema"])
 async def health_check():
     """Verifica a integridade da API."""
+    database_ok = await database.ping()
     return {
         "status": "online",
+        "database": "connected" if database_ok else "unavailable",
         "app_name": settings.APP_NAME,
         "timestamp": datetime.now().isoformat(),
         "environment": settings.APP_ENV
@@ -88,9 +105,31 @@ async def search_product(request: SearchRequest):
 
     logger.info(f"Recebida requisição de busca: EAN={request.ean}, Query={request.query}")
     try:
-        return await scraper_service.search(request)
+        response = await scraper_service.search(request)
+        await price_history_service.record_search(response)
+        return response
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/v1/history/{ean}", response_model=list[PriceHistoryItem], tags=["Histórico de Preços"])
+async def get_price_history(
+    ean: str,
+    pharmacy: Optional[PharmacyEnum] = None,
+    limit: int = Query(100, ge=1, le=500),
+):
+    """Lista as cotações registradas para um produto, da mais recente à mais antiga."""
+    return await price_history_service.get_history(ean, pharmacy=pharmacy, limit=limit)
+
+
+@app.get(
+    "/api/v1/history/{ean}/summary",
+    response_model=PriceHistorySummary,
+    tags=["Histórico de Preços"],
+)
+async def get_price_history_summary(ean: str):
+    """Retorna a última cotação conhecida de cada farmácia para um EAN."""
+    return await price_history_service.get_summary(ean)
 
 
 @app.get("/api/v1/clients", response_model=List[ClientInfo], tags=["Clientes & Planilhas"])
@@ -138,6 +177,14 @@ async def _run_client_scrape(client_folder: str, request: ClientScrapeRequest) -
             city=location.city if location else client_info.city,
             state=location.state if location else client_info.state,
         )
+
+    await price_history_service.record_client_scrape(
+        client_info,
+        products,
+        cep=location.cep if location else None,
+        city=location.city if location else client_info.city,
+        state=location.state if location else client_info.state,
+    )
 
     # Gerar planilha Excel com resultados
     output_path = ExcelService.generate_enriched_report(client_info, products, target_pharmacies)

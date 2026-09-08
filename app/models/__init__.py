@@ -7,6 +7,7 @@ from app.models.product import (
     ScrapeStatusEnum,
 )
 from app.models.client import ClientInfo, ClientScrapeResponse
+from app.models.history import PriceHistoryItem, PriceHistorySummary
 
 __all__ = [
     "PharmacyEnum",
@@ -17,4 +18,6 @@ __all__ = [
     "ScrapeStatusEnum",
     "ClientInfo",
     "ClientScrapeResponse",
+    "PriceHistoryItem",
+    "PriceHistorySummary",
 ]
