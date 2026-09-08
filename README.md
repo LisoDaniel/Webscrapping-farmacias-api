@@ -63,6 +63,28 @@ Cada varredura gera os formatos `.xlsx`, `.csv` e `.json` em `reports/`.
 Pela API, envie `{ "background": true }` para `POST /api/v1/clients/{folder}/scrape`
 e acompanhe o resultado em `GET /api/v1/jobs/{job_id}`.
 
+### 3. Validar os scrapers
+
+O comando abaixo consulta cada rede apenas pelo EAN do arquivo
+`app/fixtures/validation_products.json`, sem fallback por nome. Assim, um
+bloqueio ou falha técnica não é confundido com produto inexistente.
+
+```bash
+uv run python -m app.cli validate-scrapers
+```
+
+Para testar redes específicas ou um CEP:
+
+```bash
+uv run python -m app.cli validate-scrapers --pharmacies panvel --cep 01001-000
+```
+
+Os relatórios JSON e CSV são gerados em `reports/` e não entram no Git. Antes
+de usar a rotina como referência operacional, inclua outros EANs públicos no
+arquivo de fixtures.
+Por exigência de conformidade, a Araujo fica fora da validação automática até
+haver acesso autorizado ao catálogo.
+
 ---
 
 ## 📁 Estrutura do Projeto

@@ -12,6 +12,7 @@ from app.services.excel_service import ExcelService
 from app.services.scraper_service import ScraperService
 from app.services.cep_service import CepService
 from app.services.report_export_service import ReportExportService
+from app.services.validation_service import ScraperValidationService
 
 console = Console()
 
@@ -155,6 +156,50 @@ async def cmd_scrape_client(folder: str, limit: int = None, cep: str = None):
         console.print(f"[cyan]{path}[/cyan]")
 
 
+async def cmd_validate_scrapers(
+    fixture: str = None,
+    pharmacies: list[str] = None,
+    cep: str = None,
+    limit: int = None,
+):
+    """Valida as integrações usando EANs públicos de referência."""
+    selected = [PharmacyEnum(value) for value in pharmacies] if pharmacies else None
+    validator = ScraperValidationService()
+    try:
+        with console.status("[bold green]Validando scrapers por EAN..."):
+            report = await validator.run_from_fixture(
+                path=fixture, pharmacies=selected, cep=cep, limit=limit,
+            )
+    except ValueError as exc:
+        console.print(f"[red]Erro de validação: {exc}[/red]")
+        return
+
+    table = Table(title="Validação de Scrapers", header_style="bold blue")
+    table.add_column("EAN", style="cyan")
+    table.add_column("Farmácia", style="white")
+    table.add_column("Status", style="yellow")
+    table.add_column("Preço", justify="right", style="green")
+    table.add_column("Diagnóstico", style="dim")
+    for entry in report.entries:
+        detail = entry.error_message or entry.product_name or "-"
+        price = f"R$ {entry.price:.2f}" if entry.price is not None else "-"
+        table.add_row(entry.ean, entry.pharmacy_name, entry.status.value.upper(), price, detail)
+    console.print(table)
+
+    summary = Table(title="Resumo por Farmácia", header_style="bold blue")
+    summary.add_column("Farmácia", style="cyan")
+    for status in ScrapeStatusEnum:
+        summary.add_column(status.value, justify="right")
+    for pharmacy, counts in report.status_summary().items():
+        summary.add_row(pharmacy, *(str(counts[status.value]) for status in ScrapeStatusEnum))
+    console.print(summary)
+
+    json_path, csv_path = validator.export(report)
+    console.print("\n[bold green]Relatórios de validação gerados:[/bold green]")
+    console.print(f"[cyan]{json_path}[/cyan]")
+    console.print(f"[cyan]{csv_path}[/cyan]")
+
+
 def main():
     parser = argparse.ArgumentParser(description="WebScrapping Farmácias - CLI de Consulta de Preços")
     subparsers = parser.add_subparsers(dest="command", help="Comandos disponíveis")
@@ -174,6 +219,26 @@ def main():
     client_parser.add_argument("--limit", type=int, default=None, help="Limite de produtos a consultar")
     client_parser.add_argument("--cep", type=str, default=None, help="CEP para contextualizar preço e estoque")
 
+    # Comando validate-scrapers
+    validation_parser = subparsers.add_parser(
+        "validate-scrapers",
+        help="Valida todos os scrapers por EAN e gera relatório JSON/CSV",
+    )
+    validation_parser.add_argument(
+        "--fixture",
+        type=str,
+        default=None,
+        help="Arquivo JSON com produtos de referência (padrão: app/fixtures/validation_products.json)",
+    )
+    validation_parser.add_argument(
+        "--pharmacies",
+        nargs="+",
+        choices=[pharmacy.value for pharmacy in PharmacyEnum],
+        help="Farmácias a validar; se omitido, valida todas",
+    )
+    validation_parser.add_argument("--cep", type=str, default=None, help="CEP opcional para validação regional")
+    validation_parser.add_argument("--limit", type=int, default=None, help="Limita os EANs do arquivo de referência")
+
     args = parser.parse_args()
 
     if args.command == "list-clients":
@@ -182,6 +247,13 @@ def main():
         asyncio.run(cmd_search(ean=args.ean, query=args.query, cep=args.cep))
     elif args.command == "scrape-client":
         asyncio.run(cmd_scrape_client(folder=args.folder, limit=args.limit, cep=args.cep))
+    elif args.command == "validate-scrapers":
+        asyncio.run(cmd_validate_scrapers(
+            fixture=args.fixture,
+            pharmacies=args.pharmacies,
+            cep=args.cep,
+            limit=args.limit,
+        ))
     else:
         parser.print_help()
 

@@ -72,11 +72,18 @@ class BaseScraper(abc.ABC):
         if clean_ean and clean_ean.endswith(".0"):
             clean_ean = clean_ean[:-2]
 
+        ean_quote: Optional[PriceQuote] = None
         if clean_ean and len(clean_ean) >= 7:
             try:
-                quote = await self.search_by_ean(clean_ean)
-                if quote.status == ScrapeStatusEnum.SUCCESS and quote.price is not None:
-                    return quote
+                ean_quote = await self.search_by_ean(clean_ean)
+                if ean_quote.status == ScrapeStatusEnum.SUCCESS and ean_quote.price is not None:
+                    return ean_quote
+
+                # Um bloqueio ou erro técnico não deve ser disfarçado por uma
+                # busca textual. Isso também preserva o diagnóstico correto no
+                # relatório de validação dos scrapers.
+                if ean_quote.status in (ScrapeStatusEnum.BLOCKED, ScrapeStatusEnum.ERROR):
+                    return ean_quote
             except Exception as e:
                 logger.warning(f"[{self.name}] Falha na busca por EAN {clean_ean}: {e}")
 
@@ -94,6 +101,9 @@ class BaseScraper(abc.ABC):
                     status=ScrapeStatusEnum.ERROR,
                     error_message=str(e)
                 )
+
+        if ean_quote is not None:
+            return ean_quote
 
         return PriceQuote(
             pharmacy_key=self.pharmacy_key,

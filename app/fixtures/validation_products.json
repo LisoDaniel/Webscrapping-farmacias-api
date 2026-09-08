@@ -1,0 +1,9 @@
+{
+  "description": "Produtos de referência para verificar a disponibilidade técnica dos scrapers. Mantenha somente EANs públicos e que possam ser consultados sem autenticação.",
+  "products": [
+    {
+      "ean": "7891058003555",
+      "label": "Puran T4 12,5 mcg — 30 comprimidos"
+    }
+  ]
+}
