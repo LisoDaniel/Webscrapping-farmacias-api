@@ -18,8 +18,8 @@ class PanvelFailureModeTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.scraper = PanvelScraper()
 
-    async def test_dead_route_is_an_error_not_a_missing_product(self):
-        """HTTP 404 significa contrato mudado, não produto inexistente."""
+    async def test_bot_manager_404_is_an_error_not_a_missing_product(self):
+        """O 404 vem do bot manager, não de rota inexistente nem de produto ausente."""
         quote = await self._search_with_response(status_code=404)
         self.assertEqual(quote.status, ScrapeStatusEnum.ERROR)
         self.assertIn("404", quote.error_message)
@@ -63,11 +63,22 @@ class PanvelFailureModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(quote.ean, EAN)
         self.assertEqual(quote.product_url, "https://www.panvel.com/produto/puran-t4")
 
-    def test_no_borrowed_credentials_in_the_request(self):
-        """A rota antiga exigia app-token e user-id de um cliente real."""
-        self.assertNotIn("app-token", {key.lower() for key in self.scraper.headers})
-        self.assertNotIn("user-id", {key.lower() for key in self.scraper.headers})
-        self.assertFalse(hasattr(self.scraper, "_app_token"))
+    def test_uses_the_real_search_route(self):
+        """A rota nunca mudou: POST /api/v3/search, com o termo no corpo."""
+        self.assertEqual(self.scraper.search_path, "/api/v3/search")
+
+    def test_sends_no_personal_or_evasion_signals(self):
+        """O app-token identifica a aplicação; user-id e finger-print, não.
+
+        O primeiro é público e igual para todo visitante. Os outros dois
+        associam uma conta pessoal ao tráfego automatizado e servem para
+        enganar o bot manager — nenhum dos dois entra na requisição.
+        """
+        sent = {key.lower() for key in self.scraper.headers}
+        self.assertNotIn("user-id", sent)
+        self.assertNotIn("finger-print", sent)
+        self.assertNotIn("cookie", sent)
+        self.assertEqual(self.scraper.app_token, "ZYkPuDaVJEiD")
 
     # ------------------------------------------------------------------
 

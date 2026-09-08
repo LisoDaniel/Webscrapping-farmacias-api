@@ -1,20 +1,28 @@
 """Scraper da Panvel.
 
-Estado atual: a rota de busca que o storefront expunha (``/api/v3/search``)
-responde HTTP 404 e a página de busca é um shell Angular renderizado no
-cliente, sem nenhum dado de produto no HTML. Ou seja, **não há hoje integração
-funcional com a Panvel**.
+A rota de busca existe e funciona: ``POST /api/v3/search?type=CSR&uf=<UF>``,
+com o termo no corpo JSON. O ``uf`` importa — os preços são regionais.
+
+O que impede a coleta automatizada é o bot manager da Azion, que fica na frente
+do domínio. Um navegador recebe HTTP 200; um cliente automatizado recebe 404,
+mesmo com a URL e o ``app-token`` corretos. O 404 é sintético, não é rota
+inexistente. As assinaturas do controle aparecem na resposta ao navegador: os
+cookies ``az_botm`` e ``az_asm`` e os cabeçalhos ``x-azion-*``.
+
+Passar por ele exigiria reproduzir o cabeçalho ``finger-print`` e replicar
+aqueles cookies — sinais que existem só para separar humano de robô. Isso é
+derrotar um controle de acesso, não integrar com um serviço, então não é feito
+aqui. É o mesmo critério já aplicado à Araujo: sem canal autorizado, sem
+coleta.
 
 Enquanto isso durar, toda consulta devolve ``ERROR`` com o motivo. O que não
 pode acontecer é devolver ``NOT_FOUND``: isso faria o relatório do cliente
 afirmar que o produto não existe na rede, quando na verdade nem chegamos a
 perguntar. Um preço ausente é um incômodo; um preço ausente disfarçado de
-"produto inexistente" é uma informação errada entregue ao consultor.
+"produto inexistente" é informação errada entregue ao consultor.
 
-Restabelecer a cobertura depende de uma API ou feed autorizado pela rede — o
-mesmo critério já adotado para a Araujo. A rota anterior só respondia mediante
-um ``app-token`` extraído do bundle e um ``user-id`` de cliente real, o que
-significaria forjar a sessão de um terceiro.
+O parser abaixo está pronto e testado contra o formato da resposta. Havendo
+acesso autorizado, basta a requisição passar.
 """
 
 from typing import Any, Optional
@@ -28,7 +36,10 @@ class PanvelScraper(BaseScraper):
     pharmacy_key = PharmacyEnum.PANVEL
     name = "Panvel"
     base_url = "https://www.panvel.com"
-    search_path = "/api/v1/search"
+    search_path = "/api/v3/search"
+    # Identifica a aplicação do storefront, não uma pessoa: vai embutido no
+    # bundle e é idêntico para todo visitante.
+    app_token = "ZYkPuDaVJEiD"
 
     def _result(
         self,
@@ -120,7 +131,16 @@ class PanvelScraper(BaseScraper):
             "searchOffers": False,
             "searchType": "term",
         }
-        headers = {**self.headers, "Origin": self.base_url, "Referer": f"{self.base_url}/"}
+        # Cabeçalhos honestos: identificam a aplicação e a origem, e nada mais.
+        # Ficam de fora o `user-id` (identifica uma conta pessoal, e associá-la
+        # a tráfego automatizado é risco para o titular) e o `finger-print`,
+        # que serve apenas para enganar o bot manager.
+        headers = {
+            **self.headers,
+            "app-token": self.app_token,
+            "Origin": self.base_url,
+            "Referer": f"{self.base_url}/",
+        }
         params = {"type": "CSR", "uf": self.state or "RS"}
 
         async with self.get_http_client() as client:
@@ -140,6 +160,15 @@ class PanvelScraper(BaseScraper):
                 ScrapeStatusEnum.BLOCKED,
                 requested_ean,
                 f"Busca Panvel bloqueada (HTTP {response.status_code}).",
+            )
+        if response.status_code == 404:
+            # A rota existe e responde 200 para um navegador. O 404 aqui é a
+            # resposta sintética do bot manager a um cliente automatizado.
+            return self._result(
+                ScrapeStatusEnum.ERROR,
+                requested_ean,
+                "A Panvel bloqueia coleta automatizada (bot manager devolve HTTP 404 "
+                "para requisições fora do navegador). Depende de acesso autorizado.",
             )
         if response.status_code != 200:
             return self._result(

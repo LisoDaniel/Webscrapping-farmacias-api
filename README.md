@@ -15,7 +15,7 @@ Desenvolvido para análise competitiva de preços do **Instituto Bulla**, com le
 * **Drogarias Pacheco** (`drogariaspacheco.com.br`)
 * **Drogaria São Paulo** (`drogariasaopaulo.com.br`)
 * **Pague Menos** (`paguemenos.com.br`)
-* **Panvel** (`panvel.com`) — ⚠️ sem integração ativa: a busca do storefront responde HTTP 404. As consultas retornam `ERROR` explícito até haver acesso autorizado.
+* **Panvel** (`panvel.com`) — ⚠️ bloqueada: a rota de busca funciona, mas o bot manager da rede devolve HTTP 404 para clientes automatizados. As consultas retornam `ERROR` explícito até haver acesso autorizado.
 * **Farmácias Araujo** (`araujo.com.br`, com detecção explícita de bloqueio WAF)
 * **Farma Conde** (`farmaconde.com.br`, catálogo VTEX público)
 

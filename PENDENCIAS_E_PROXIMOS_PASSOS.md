@@ -36,12 +36,16 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 | :--- | :---: | :--- | :--- |
 | **Drogarias Pacheco** | ~~Alta~~ | VTEX Intelligent Search. | ✅ **CONCLUÍDO** |
 | **Drogaria São Paulo (DPSP)** | ~~Média~~ | Pertence ao grupo Pacheco — herdou o scraper. | ✅ **CONCLUÍDO** |
-| **Panvel Farmácias** | **Alta** | A rota de busca do storefront responde HTTP 404 e a página é um shell Angular sem dados no HTML. | 🔴 **SEM INTEGRAÇÃO** — depende de API/feed autorizado pela rede |
+| **Panvel Farmácias** | **Alta** | A rota existe e funciona, mas o bot manager da Azion devolve HTTP 404 sintético para clientes automatizados. | 🔴 **BLOQUEADO** — depende de API/feed autorizado pela rede |
 | **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede responde HTTP 403. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
 | **Farma Conde** | ~~Alta~~ | Catálogo VTEX público. | ✅ **CONCLUÍDO** — validado por EAN exato |
 
 ### Operação e manutenção dos scrapers
-1. **Panvel** — não há integração funcional. A rota que o scraper usava (`/api/v3/search`) foi descontinuada, e a única forma de reativá-la seria reenviar um `app-token` extraído do bundle junto ao `user-id` de um cliente real — ou seja, forjar a sessão de um terceiro. Enquanto não houver acesso autorizado, toda consulta devolve `ERROR` com o motivo. **Nunca `NOT_FOUND`**: isso faria o relatório afirmar que a rede não vende o produto, quando na verdade não chegamos a perguntar.
+1. **Panvel** — a rota está viva e correta: `POST /api/v3/search?type=CSR&uf=<UF>`, com o termo no corpo JSON e preços regionais por UF. O que bloqueia é o **bot manager da Azion**, que fica na frente do domínio: um navegador recebe HTTP 200; um cliente automatizado recebe 404, mesmo com a URL e o `app-token` corretos. O 404 é sintético, não é rota inexistente — as assinaturas do controle são os cookies `az_botm`/`az_asm` e os cabeçalhos `x-azion-*` na resposta ao navegador.
+
+   Passar por ele exigiria reproduzir o cabeçalho `finger-print` e replicar aqueles cookies, sinais que existem só para separar humano de robô. Isso é derrotar um controle de acesso, não integrar com um serviço, e por isso não é feito aqui — mesmo critério da Araujo. O `app-token` é enviado por identificar a aplicação do storefront (é público e igual para todo visitante); o `user-id` fica de fora porque identifica uma conta pessoal, e associá-la a tráfego automatizado é risco para o titular.
+
+   Enquanto não houver acesso autorizado, toda consulta devolve `ERROR` com o motivo. **Nunca `NOT_FOUND`**: isso faria o relatório afirmar que a rede não vende o produto, quando na verdade não chegamos a perguntar. O parser já está pronto e testado contra o formato da resposta; havendo acesso, basta a requisição passar.
 2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
 
 ### Garantia de correspondência exata por EAN
