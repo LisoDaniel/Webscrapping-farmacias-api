@@ -14,6 +14,7 @@ class PharmacyEnum(str, Enum):
     DROGARIA_SAO_PAULO = "drogariasaopaulo"
     PANVEL = "panvel"
     ARAUJO = "araujo"
+    FARMA_CONDE = "farmaconde"
 
 
 class ScrapeStatusEnum(str, Enum):

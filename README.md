@@ -17,6 +17,7 @@ Desenvolvido para análise competitiva de preços do **Instituto Bulla**, com le
 * **Pague Menos** (`paguemenos.com.br`)
 * **Panvel** (`panvel.com`)
 * **Farmácias Araujo** (`araujo.com.br`, com detecção explícita de bloqueio WAF)
+* **Farma Conde** (`farmaconde.com.br`, catálogo VTEX público)
 
 ---
 

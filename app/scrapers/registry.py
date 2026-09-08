@@ -9,6 +9,7 @@ from app.scrapers.pacheco import PachecoScraper
 from app.scrapers.drogaria_sao_paulo import DrogariaSaoPauloScraper
 from app.scrapers.panvel import PanvelScraper
 from app.scrapers.araujo import AraujoScraper
+from app.scrapers.farmaconde import FarmaCondeScraper
 
 
 class ScraperRegistry:
@@ -24,6 +25,7 @@ class ScraperRegistry:
         PharmacyEnum.DROGARIA_SAO_PAULO: DrogariaSaoPauloScraper,
         PharmacyEnum.PANVEL: PanvelScraper,
         PharmacyEnum.ARAUJO: AraujoScraper,
+        PharmacyEnum.FARMA_CONDE: FarmaCondeScraper,
     }
 
     # Mapeamento de termos e domínios encontrados nas planilhas do Instituto Bulla
@@ -54,6 +56,9 @@ class ScraperRegistry:
         "farmácias araujo": PharmacyEnum.ARAUJO,
         "farmacias araujo": PharmacyEnum.ARAUJO,
         "araujo": PharmacyEnum.ARAUJO,
+        "farmaconde.com.br": PharmacyEnum.FARMA_CONDE,
+        "farma conde": PharmacyEnum.FARMA_CONDE,
+        "farmaconde": PharmacyEnum.FARMA_CONDE,
     }
 
     @classmethod

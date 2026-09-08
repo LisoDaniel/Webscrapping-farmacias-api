@@ -38,6 +38,7 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 | **Drogaria São Paulo (DPSP)** | ~~Média~~ | Pertence ao grupo Pacheco — herdou o scraper. | ✅ **CONCLUÍDO** |
 | **Panvel Farmácias** | **Alta** | Integração da busca Angular (API JSON + fallback SSR), sem dependência de browser headless. | 🟡 Implementado; validar periodicamente contra mudanças do storefront |
 | **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede respondeu HTTP 403 na validação. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
+| **Farma Conde** | ~~Alta~~ | Catálogo VTEX público por EAN/termo. | ✅ Implementado e validado por busca textual |
 
 ### Operação e manutenção dos novos scrapers
 1. **Panvel** — a busca usa a rota JSON exposta pelo storefront e tenta o HTML SSR como fallback. Se o contrato do site mudar, o resultado passa a refletir erro/bloqueio, sem inventar preço.
