@@ -59,6 +59,10 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 - [x] **Histórico de Preços (PostgreSQL)**:
   - Persistência de produtos, execuções de coleta e cotações por farmácia.
   - Consulta de histórico e último preço conhecido por EAN em `/api/v1/history/{ean}`.
+- [ ] **Ampliar o acervo de farmácias consultadas**:
+  - Mapear novas redes regionais e nacionais, priorizando catálogos públicos ou APIs/feed de preços autorizados.
+  - Validar cada integração por EAN e CEP antes de liberá-la para as varreduras de clientes.
+  - Candidatas iniciais: Drogaria Catarinense, Drogaria Venancio, Drogaria Minas-Brasil e Farmácias Nissei.
 
 ---
 
