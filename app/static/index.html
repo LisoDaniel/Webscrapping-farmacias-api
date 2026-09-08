@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instituto Bulla — Comparador de Farmácias</title>
+  <style>
+    :root { color-scheme: light; font-family: Arial, sans-serif; color: #16324f; background: #f4f7fb; }
+    body { margin: 0; } main { max-width: 1050px; margin: auto; padding: 2rem 1rem 4rem; }
+    h1 { margin-bottom: .25rem; } .sub { color: #587085; margin-top: 0; }
+    section { background: white; border-radius: 12px; box-shadow: 0 2px 14px #16324f18; padding: 1.25rem; margin-top: 1rem; }
+    form { display: grid; grid-template-columns: 2fr 1fr auto; gap: .7rem; align-items: end; }
+    label { display: grid; gap: .3rem; font-weight: 600; } input, select, button { padding: .65rem; border: 1px solid #bcccdc; border-radius: 7px; font: inherit; }
+    button { background: #1f4e79; color: white; cursor: pointer; border: 0; } button:hover { background: #163b5d; }
+    table { width: 100%; border-collapse: collapse; margin-top: 1rem; } th, td { padding: .65rem; text-align: left; border-bottom: 1px solid #e4ebf2; }
+    th { color: #426680; } .ok { color: #18784a; } .warn { color: #9b6513; } .error { color: #a52323; }
+    #message { min-height: 1.3rem; margin-top: .8rem; } a { color: #1f4e79; }
+    @media (max-width: 700px) { form { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body><main>
+  <h1>Comparador de preços</h1>
+  <p class="sub">Instituto Bulla · consulta de redes de farmácia e planilhas de clientes</p>
+  <section>
+    <h2>Consultar produto</h2>
+    <form id="search-form">
+      <label>EAN ou nome do produto<input id="term" required placeholder="Ex.: 7891058003555 ou Puran T4"></label>
+      <label>CEP (opcional)<input id="cep" inputmode="numeric" placeholder="00000-000"></label>
+      <button>Pesquisar</button>
+    </form>
+    <div id="message" aria-live="polite"></div>
+    <table id="results" hidden><thead><tr><th>Farmácia</th><th>Produto</th><th>Preço</th><th>Status</th><th>Oferta</th></tr></thead><tbody></tbody></table>
+  </section>
+  <section>
+    <h2>Planilhas de clientes</h2>
+    <p>Envie uma planilha XLSX para criar uma pasta de cliente.</p>
+    <form id="upload-form">
+      <label>Nome do cliente<input id="client-name" required placeholder="Ex.: 1400 NOVO CLIENTE"></label>
+      <label>Planilha XLSX<input id="file" type="file" accept=".xlsx" required></label>
+      <button>Enviar</button>
+    </form>
+    <div id="clients-message" aria-live="polite"></div>
+    <table><thead><tr><th>Cliente</th><th>Cidade/UF</th><th>Produtos</th><th>Ação</th></tr></thead><tbody id="clients"></tbody></table>
+  </section>
+</main>
+<script>
+const api = '/api/v1';
+const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+async function loadClients() {
+  const response = await fetch(`${api}/clients`); const clients = await response.json();
+  document.querySelector('#clients').innerHTML = clients.map(c => `<tr><td>${escapeHtml(c.client_name)}</td><td>${escapeHtml(c.city || '-')}/${escapeHtml(c.state || '-')}</td><td>${c.total_products}</td><td><button data-folder="${escapeHtml(c.folder_name)}">Gerar relatórios</button></td></tr>`).join('');
+  document.querySelectorAll('[data-folder]').forEach(button => button.onclick = () => startScrape(button.dataset.folder));
+}
+async function startScrape(folder) {
+  const message = document.querySelector('#clients-message'); message.textContent = 'Varredura iniciada em segundo plano…';
+  const response = await fetch(`${api}/clients/${encodeURIComponent(folder)}/scrape`, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({background:true})});
+  const data = await response.json(); if (!response.ok) { message.textContent = data.detail || 'Não foi possível iniciar a varredura.'; return; }
+  const poll = async () => { const status = await (await fetch(`${api}/jobs/${data.job_id}`)).json(); message.textContent = `Status: ${status.status} (${status.scraped_products}/${status.total_products})`;
+    if (status.status === 'completed') message.innerHTML += ` · ${status.report_files.map(file => `<a href="${api}/reports/download/${encodeURIComponent(file)}">${escapeHtml(file)}</a>`).join(' · ')}`;
+    else if (status.status !== 'failed') setTimeout(poll, 1500); }; poll();
+}
+document.querySelector('#search-form').onsubmit = async event => { event.preventDefault(); const term = document.querySelector('#term').value.trim(); const cep = document.querySelector('#cep').value.trim(); const body = /^\d{7,14}$/.test(term) ? {ean:term, cep:cep||undefined} : {query:term, cep:cep||undefined};
+  const message = document.querySelector('#message'); message.textContent = 'Consultando redes…'; const response = await fetch(`${api}/search`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const data = await response.json();
+  if (!response.ok) { message.textContent = data.detail || 'Consulta inválida.'; return; } message.textContent = data.city ? `Região: ${data.city}/${data.state}` : '';
+  document.querySelector('#results tbody').innerHTML = data.quotes.map(q => `<tr><td>${escapeHtml(q.pharmacy_name)}</td><td>${escapeHtml(q.product_name||'-')}</td><td>${q.price == null ? '-' : 'R$ '+q.price.toFixed(2)}</td><td class="${q.status === 'success' ? 'ok' : q.status === 'blocked' ? 'warn' : 'error'}">${escapeHtml(q.status)}</td><td>${q.product_url ? `<a href="${escapeHtml(q.product_url)}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td></tr>`).join(''); document.querySelector('#results').hidden = false;
+};
+document.querySelector('#upload-form').onsubmit = async event => { event.preventDefault(); const form = new FormData(); form.append('client_name', document.querySelector('#client-name').value); form.append('file', document.querySelector('#file').files[0]); const response = await fetch(`${api}/clients/upload`, {method:'POST',body:form}); const data = await response.json(); document.querySelector('#clients-message').textContent = response.ok ? 'Planilha enviada.' : (data.detail || 'Falha no envio.'); if(response.ok) loadClients(); };
+loadClients();
+</script></body></html>

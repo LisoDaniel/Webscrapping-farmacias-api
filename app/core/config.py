@@ -1,0 +1,37 @@
+from pathlib import Path
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class Settings(BaseSettings):
+    APP_NAME: str = "WebScrapping Farmácias API"
+    APP_ENV: str = "development"
+    DEBUG: bool = True
+    PORT: int = 8000
+    HOST: str = "0.0.0.0"
+
+    # Scraping
+    SCRAPER_TIMEOUT_SECONDS: float = 15.0
+    SCRAPER_MAX_CONCURRENCY: int = 5
+    SCRAPER_RETRY_ATTEMPTS: int = 2
+
+    # Paths
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent.parent
+    CLIENTS_DIR: Path = BASE_DIR / "Clientes"
+    REPORTS_DIR: Path = BASE_DIR / "reports"
+
+    # HTTP Client headers
+    DEFAULT_USER_AGENT: str = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    )
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore"
+    )
+
+
+settings = Settings()
+# Garante a existência da pasta reports
+settings.REPORTS_DIR.mkdir(parents=True, exist_ok=True)

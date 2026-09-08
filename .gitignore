@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Reports gerados
+reports/*.xlsx
+reports/*.csv
+reports/*.json
+!reports/.gitkeep
+
+# Planilhas recebidas de clientes e arquivos temporários do Excel
+Clientes/
+~$*.xlsx
+
+# Ambientes locais
+.env
+.env.local
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo

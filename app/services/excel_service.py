@@ -1,0 +1,330 @@
+from datetime import datetime
+from pathlib import Path
+import re
+from typing import List, Optional, Tuple
+import openpyxl
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.utils import get_column_letter
+
+from app.core.config import settings
+from app.core.logging import logger
+from app.models.client import ClientInfo, CompetitorConfig
+from app.models.product import PharmacyEnum, PriceQuote, ProductItem, ScrapeStatusEnum
+from app.scrapers.registry import ScraperRegistry
+
+
+class ExcelService:
+    """Serviço para leitura de planilhas de clientes e geração de relatórios de preços."""
+
+    @staticmethod
+    def list_available_clients() -> List[ClientInfo]:
+        """Varre o diretório Clientes/ e identifica todas as pastas e planilhas válidas."""
+        clients: List[ClientInfo] = []
+        if not settings.CLIENTS_DIR.exists():
+            return clients
+
+        for folder in sorted(settings.CLIENTS_DIR.iterdir()):
+            if not folder.is_dir():
+                continue
+
+            xlsx_files = list(folder.glob("*.xlsx"))
+            if not xlsx_files:
+                continue
+
+            xlsx_path = xlsx_files[0]
+            try:
+                wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+                sheet = wb.active
+
+                city = None
+                state = None
+                cep = None
+                competitors: List[CompetitorConfig] = []
+                total_products = 0
+
+                # Lê as primeiras 25 linhas procurando cabeçalhos, cidade, concorrentes
+                header_rows = list(sheet.iter_rows(values_only=True, max_row=30))
+                for row in header_rows:
+                    for cell in row:
+                        if not cell or not isinstance(cell, str):
+                            continue
+                        text = cell.strip()
+                        if text.upper().startswith("CIDADE:"):
+                            city = text.split(":", 1)[1].strip()
+                        elif text.upper().startswith("ESTADO:"):
+                            state = text.split(":", 1)[1].strip()
+                        elif text.upper().startswith("CEP:"):
+                            cep = re.sub(r"\D", "", text.split(":", 1)[1]) or None
+                        elif ".com" in text.lower() or "farmacia" in text.lower():
+                            resolved = ScraperRegistry.resolve_pharmacy(text)
+                            if resolved and not any(c.site == text for c in competitors):
+                                competitors.append(CompetitorConfig(
+                                    name=resolved.value.replace("_", " ").title(),
+                                    site=text,
+                                    pharmacy_key=resolved
+                                ))
+
+                # Conta linhas com EAN válido
+                for row in sheet.iter_rows(values_only=True):
+                    val = row[0] if len(row) > 0 else None
+                    if val and str(val).strip().isdigit() and len(str(val).strip()) >= 7:
+                        total_products += 1
+
+                wb.close()
+
+                client_id = folder.name.replace(" ", "_").lower()
+                clients.append(ClientInfo(
+                    id=client_id,
+                    folder_name=folder.name,
+                    file_path=str(xlsx_path),
+                    client_name=folder.name,
+                    city=city,
+                    state=state,
+                    cep=cep,
+                    competitors=competitors,
+                    total_products=total_products
+                ))
+            except Exception as e:
+                logger.error(f"Erro ao processar pasta do cliente {folder.name}: {e}")
+
+        return clients
+
+    @staticmethod
+    def parse_client_products(
+        folder_name: str,
+        limit: Optional[int] = None
+    ) -> Tuple[ClientInfo, List[ProductItem]]:
+        """Extrai a lista de produtos da planilha do cliente informado."""
+        target_dir = settings.CLIENTS_DIR / folder_name
+        if not target_dir.exists():
+            raise FileNotFoundError(f"Pasta do cliente não encontrada: {folder_name}")
+
+        xlsx_files = list(target_dir.glob("*.xlsx"))
+        if not xlsx_files:
+            raise FileNotFoundError(f"Nenhuma planilha .xlsx encontrada em: {folder_name}")
+
+        xlsx_path = xlsx_files[0]
+        wb = openpyxl.load_workbook(xlsx_path, data_only=True)
+        sheet = wb.active
+
+        city = None
+        state = None
+        cep = None
+        competitors: List[CompetitorConfig] = []
+        products: List[ProductItem] = []
+
+        # Localizar colunas
+        ean_col_idx = 1
+        name_col_idx = 2
+        lab_col_idx = 3
+        group_col_idx = 4
+        pmc_col_idx = None
+        price_col_idx = None
+
+        # Varre as linhas para metadados e produtos
+        # Primeiro passo: Extrair metadados das primeiras 40 linhas (cidade, estado, concorrentes, colunas)
+        max_meta_rows = min(sheet.max_row, 40)
+        for r_idx in range(1, max_meta_rows + 1):
+            row_vals = [sheet.cell(r_idx, c_idx).value for c_idx in range(1, 15)]
+            for col_idx, val in enumerate(row_vals):
+                if not val or not isinstance(val, str):
+                    continue
+                v_upper = val.upper().strip()
+                if "PMC" in v_upper and pmc_col_idx is None:
+                    pmc_col_idx = col_idx + 1
+                elif ("PREÇO LÍQ" in v_upper or "PRECO LIQ" in v_upper) and price_col_idx is None:
+                    price_col_idx = col_idx + 1
+                elif v_upper.startswith("CIDADE:"):
+                    city = val.split(":", 1)[1].strip()
+                elif v_upper.startswith("ESTADO:"):
+                    state = val.split(":", 1)[1].strip()
+                elif v_upper.startswith("CEP:"):
+                    cep = re.sub(r"\D", "", val.split(":", 1)[1]) or None
+                elif ".com" in val.lower():
+                    resolved = ScraperRegistry.resolve_pharmacy(val)
+                    if resolved and not any(c.site == val for c in competitors):
+                        competitors.append(CompetitorConfig(
+                            name=resolved.value.replace("_", " ").title(),
+                            site=val,
+                            pharmacy_key=resolved
+                        ))
+
+        # Segundo passo: Coleta de produtos respeitando o limit
+        for row_idx in range(1, sheet.max_row + 1):
+            cell_vals = [sheet.cell(row_idx, col_idx).value for col_idx in range(1, 6)]
+
+            # Verificar se é linha de produto (EAN válido)
+            first_val = cell_vals[0]
+            if first_val and str(first_val).replace(".0", "").strip().isdigit():
+                clean_ean = str(first_val).replace(".0", "").strip()
+                prod_name = str(cell_vals[1] or f"Produto EAN {clean_ean}").strip()
+                lab = str(cell_vals[2] or "").strip() if len(cell_vals) > 2 else None
+                grp = str(cell_vals[3] or "").strip() if len(cell_vals) > 3 else None
+
+                pmc = None
+                if pmc_col_idx:
+                    raw_pmc = sheet.cell(row_idx, pmc_col_idx).value
+                    if isinstance(raw_pmc, (int, float)):
+                        pmc = float(raw_pmc)
+
+                net_price = None
+                if price_col_idx:
+                    raw_net = sheet.cell(row_idx, price_col_idx).value
+                    if isinstance(raw_net, (int, float)):
+                        net_price = float(raw_net)
+
+                products.append(ProductItem(
+                    ean=clean_ean,
+                    name=prod_name,
+                    laboratory=lab,
+                    group=grp,
+                    client_pmc=pmc,
+                    client_net_price=net_price
+                ))
+
+                if limit and len(products) >= limit:
+                    break
+
+        wb.close()
+
+        client_info = ClientInfo(
+            id=folder_name.replace(" ", "_").lower(),
+            folder_name=folder_name,
+            file_path=str(xlsx_path),
+            client_name=folder_name,
+            city=city,
+            state=state,
+            cep=cep,
+            competitors=competitors,
+            total_products=len(products)
+        )
+
+        return client_info, products
+
+    @staticmethod
+    def generate_enriched_report(
+        client_info: ClientInfo,
+        products: List[ProductItem],
+        pharmacies: List[PharmacyEnum]
+    ) -> Path:
+        """Gera uma planilha Excel estilizada com as cotações e comparação de preços."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Comparativo de Preços"
+
+        # Estilos visuais profissionais
+        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+        comp_header_fill = PatternFill(start_color="2F5597", end_color="2F5597", fill_type="solid")
+        cheapest_fill = PatternFill(start_color="E2EFDA", end_color="E2EFDA", fill_type="solid")
+        font_header = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+        font_data = Font(name="Calibri", size=10)
+        font_bold = Font(name="Calibri", size=10, bold=True)
+        thin_border = Border(
+            left=Side(style="thin", color="D9D9D9"),
+            right=Side(style="thin", color="D9D9D9"),
+            top=Side(style="thin", color="D9D9D9"),
+            bottom=Side(style="thin", color="D9D9D9")
+        )
+
+        # Montagem do Cabeçalho
+        headers = [
+            "CÓD. BARRAS / EAN",
+            "PRODUTO",
+            "LABORATÓRIO",
+            "GRUPO",
+            "PREÇO CLIENTE (R$)",
+        ]
+
+        # Colunas de cada concorrente
+        pharmacy_names = {}
+        for p in pharmacies:
+            scraper = ScraperRegistry.get_scraper(p)
+            p_name = scraper.name if scraper else p.value
+            pharmacy_names[p] = p_name
+            headers.append(f"PREÇO - {p_name}")
+            headers.append(f"DESC % - {p_name}")
+            headers.append(f"LINK - {p_name}")
+
+        headers.extend([
+            "MENOR PREÇO CONCORRENTES",
+            "FARMÁCIA MAIS BARATA",
+            "DIFERENÇA % (vs CLIENTE)",
+        ])
+
+        ws.append(headers)
+
+        # Estilizar linha de cabeçalho
+        for col_idx in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=col_idx)
+            cell.font = font_header
+            cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            cell.fill = comp_header_fill if col_idx > 5 else header_fill
+        ws.row_dimensions[1].height = 28
+
+        # Inserção dos dados
+        for row_idx, prod in enumerate(products, start=2):
+            row_data = [
+                prod.ean,
+                prod.name,
+                prod.laboratory or "-",
+                prod.group or "-",
+                prod.client_net_price,
+            ]
+
+            valid_competitor_prices = []
+            quotes_by_pharmacy = {q.pharmacy_key: q for q in prod.quotes}
+
+            for p in pharmacies:
+                quote = quotes_by_pharmacy.get(p)
+                if quote and quote.status == ScrapeStatusEnum.SUCCESS and quote.price is not None:
+                    row_data.append(quote.price)
+                    row_data.append(quote.discount_percentage or 0.0)
+                    row_data.append(quote.product_url or "-")
+                    valid_competitor_prices.append((quote.price, pharmacy_names[p]))
+                else:
+                    status_text = "Não Encontrado" if not quote or quote.status == ScrapeStatusEnum.NOT_FOUND else "Erro"
+                    row_data.append(status_text)
+                    row_data.append("-")
+                    row_data.append("-")
+
+            # Resumo da concorrência
+            if valid_competitor_prices:
+                min_price, cheapest_pharmacy = min(valid_competitor_prices, key=lambda x: x[0])
+                row_data.append(min_price)
+                row_data.append(cheapest_pharmacy)
+
+                if prod.client_net_price and prod.client_net_price > 0:
+                    diff_pct = round(((min_price - prod.client_net_price) / prod.client_net_price) * 100, 1)
+                    row_data.append(diff_pct)
+                else:
+                    row_data.append("-")
+            else:
+                row_data.extend(["-", "-", "-"])
+
+            ws.append(row_data)
+
+            # Estilização das células da linha
+            for col_idx in range(1, len(headers) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.font = font_data
+                cell.border = thin_border
+                cell.alignment = Alignment(vertical="center")
+
+                # Formatar moeda onde aplicável
+                if isinstance(cell.value, float) and "PREÇO" in headers[col_idx - 1]:
+                    cell.number_format = '"R$ "#,##0.00'
+
+        # Ajuste automático de largura das colunas
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or "")) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = min(max(max_len + 3, 12), 40)
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_name = re.sub(r"[^\w\-]", "_", client_info.folder_name)
+        output_filename = f"RELATORIO_{safe_name}_{timestamp}.xlsx"
+        output_path = settings.REPORTS_DIR / output_filename
+
+        wb.save(output_path)
+        logger.info(f"Relatório gerado com sucesso: {output_path}")
+        return output_path
