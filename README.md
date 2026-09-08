@@ -15,9 +15,14 @@ Desenvolvido para análise competitiva de preços do **Instituto Bulla**, com le
 * **Drogarias Pacheco** (`drogariaspacheco.com.br`)
 * **Drogaria São Paulo** (`drogariasaopaulo.com.br`)
 * **Pague Menos** (`paguemenos.com.br`)
-* **Panvel** (`panvel.com`)
+* **Panvel** (`panvel.com`) — ⚠️ sem integração ativa: a busca do storefront responde HTTP 404. As consultas retornam `ERROR` explícito até haver acesso autorizado.
 * **Farmácias Araujo** (`araujo.com.br`, com detecção explícita de bloqueio WAF)
 * **Farma Conde** (`farmaconde.com.br`, catálogo VTEX público)
+
+As redes VTEX consultam o catálogo por `fq=alternateIds_Ean`, que exige
+correspondência exata de EAN. Uma cotação nunca sai com um código que a loja não
+confirmou: sem SKU com o EAN consultado, o resultado é "não encontrado" — jamais
+o preço de um produto parecido.
 
 ---
 

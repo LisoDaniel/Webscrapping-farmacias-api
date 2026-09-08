@@ -36,13 +36,18 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 | :--- | :---: | :--- | :--- |
 | **Drogarias Pacheco** | ~~Alta~~ | VTEX Intelligent Search. | ✅ **CONCLUÍDO** |
 | **Drogaria São Paulo (DPSP)** | ~~Média~~ | Pertence ao grupo Pacheco — herdou o scraper. | ✅ **CONCLUÍDO** |
-| **Panvel Farmácias** | **Alta** | Integração da busca Angular (API JSON + fallback SSR), sem dependência de browser headless. | 🟡 Implementado; validar periodicamente contra mudanças do storefront |
-| **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede respondeu HTTP 403 na validação. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
-| **Farma Conde** | ~~Alta~~ | Catálogo VTEX público por EAN/termo. | ✅ Implementado e validado por busca textual |
+| **Panvel Farmácias** | **Alta** | A rota de busca do storefront responde HTTP 404 e a página é um shell Angular sem dados no HTML. | 🔴 **SEM INTEGRAÇÃO** — depende de API/feed autorizado pela rede |
+| **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede responde HTTP 403. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
+| **Farma Conde** | ~~Alta~~ | Catálogo VTEX público. | ✅ **CONCLUÍDO** — validado por EAN exato |
 
-### Operação e manutenção dos novos scrapers
-1. **Panvel** — a busca usa a rota JSON exposta pelo storefront e tenta o HTML SSR como fallback. Se o contrato do site mudar, o resultado passa a refletir erro/bloqueio, sem inventar preço.
-2. **Araujo** — o scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429. A obtenção de preços enquanto o WAF estiver ativo depende de uma API ou integração autorizada pela rede.
+### Operação e manutenção dos scrapers
+1. **Panvel** — não há integração funcional. A rota que o scraper usava (`/api/v3/search`) foi descontinuada, e a única forma de reativá-la seria reenviar um `app-token` extraído do bundle junto ao `user-id` de um cliente real — ou seja, forjar a sessão de um terceiro. Enquanto não houver acesso autorizado, toda consulta devolve `ERROR` com o motivo. **Nunca `NOT_FOUND`**: isso faria o relatório afirmar que a rede não vende o produto, quando na verdade não chegamos a perguntar.
+2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
+
+### Garantia de correspondência exata por EAN
+Todas as redes VTEX (Preço Popular, São João, Pacheco, DPSP, Pague Menos, Farma Conde, Araujo) herdam de `app/scrapers/vtex.py` e consultam o catálogo pelo filtro `fq=alternateIds_Ean:<ean>`, que devolve correspondência exata.
+
+O índice de texto livre `ft=` **não** cobre EAN em todas as lojas — era por isso que a Farma Conde devolvia "não encontrado" para qualquer EAN — e, onde cobre, pode trazer outro produto na primeira posição. A regra que vale hoje: **uma cotação só carrega um EAN que a loja confirmou.** Sem SKU com o código exato, o resultado é `NOT_FOUND`, nunca o preço de um item parecido. Coberto por `tests/test_vtex_scraper.py`.
 
 ---
 
