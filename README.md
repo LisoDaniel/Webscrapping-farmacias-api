@@ -15,7 +15,7 @@ Desenvolvido para análise competitiva de preços do **Instituto Bulla**, com le
 * **Drogarias Pacheco** (`drogariaspacheco.com.br`)
 * **Drogaria São Paulo** (`drogariasaopaulo.com.br`)
 * **Pague Menos** (`paguemenos.com.br`)
-* **Panvel** (`panvel.com`) — ⚠️ bloqueada: a rota de busca funciona, mas o bot manager da rede devolve HTTP 404 para clientes automatizados. As consultas retornam `ERROR` explícito até haver acesso autorizado.
+* **Panvel** (`panvel.com`) — ⚠️ via coleta assistida: o bot manager da rede devolve HTTP 404 para clientes automatizados, então a busca é feita no navegador do operador. Veja abaixo.
 * **Farmácias Araujo** (`araujo.com.br`, com detecção explícita de bloqueio WAF)
 * **Farma Conde** (`farmaconde.com.br`, catálogo VTEX público)
 
@@ -23,6 +23,29 @@ As redes VTEX consultam o catálogo por `fq=alternateIds_Ean`, que exige
 correspondência exata de EAN. Uma cotação nunca sai com um código que a loja não
 confirmou: sem SKU com o EAN consultado, o resultado é "não encontrado" — jamais
 o preço de um produto parecido.
+
+### Coleta assistida (Panvel)
+
+A Panvel bloqueia cliente automatizado por bot manager: o navegador recebe HTTP
+200 e um script recebe 404. Em vez de forjar os sinais que o controle usa para
+distinguir humano de robô, a busca é feita no navegador do próprio operador.
+
+```bash
+# 1. Gere a lista de EANs da planilha
+uv run python -m app.cli listar-eans --folder "1167 CARIN"
+```
+
+2. Abra `panvel.com`, informe o CEP da região (os preços são regionais) e abra o
+   console do navegador (F12).
+3. Cole o conteúdo de `tools/captura_panvel.js` e rode
+   `capturarPanvel([...])` com a lista do passo 1. Há intervalo entre as
+   requisições, então uma planilha grande leva alguns minutos.
+4. Mova o `panvel.json` baixado para a pasta `capturas/`.
+
+A partir daí a Panvel entra normalmente nas varreduras. A cotação fica datada
+pelo instante da captura, não pelo da leitura, e capturas com mais de 24 h
+(`CAPTURE_MAX_AGE_HOURS`) são recusadas com um aviso para refazer a coleta —
+preço velho não entra no relatório como se fosse atual.
 
 ---
 

@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     CLIENTS_DIR: Path = BASE_DIR / "Clientes"
     REPORTS_DIR: Path = BASE_DIR / "reports"
 
+    # Coleta assistida: payloads capturados no navegador para as redes que
+    # bloqueiam cliente automatizado. Ver tools/captura_panvel.js.
+    CAPTURES_DIR: Path = BASE_DIR / "capturas"
+    # Preço envelhece. Passado esse prazo a captura é ignorada em vez de virar
+    # um valor desatualizado apresentado como atual.
+    CAPTURE_MAX_AGE_HOURS: float = 24.0
+
     # HTTP Client headers
     DEFAULT_USER_AGENT: str = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "

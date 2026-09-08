@@ -1,5 +1,6 @@
 import argparse
 import asyncio
+import json
 import sys
 from rich.console import Console
 from rich.table import Table
@@ -44,6 +45,24 @@ def cmd_list_clients():
         )
 
     console.print(table)
+
+
+def cmd_listar_eans(folder: str, limit: int = None):
+    """Imprime os EANs da planilha como lista JS, para a coleta assistida.
+
+    A saída vai em print() puro, sem formatação do rich, para poder ser colada
+    direto no console do navegador junto de tools/captura_panvel.js.
+    """
+    try:
+        _, products = ExcelService.parse_client_products(folder, limit=limit)
+    except Exception as exc:
+        console.print(f"[red]Erro ao carregar cliente '{folder}': {exc}[/red]")
+        return
+    eans = [product.ean for product in products if product.ean]
+    if not eans:
+        console.print("[yellow]Nenhum EAN encontrado na planilha.[/yellow]")
+        return
+    print(json.dumps(eans, ensure_ascii=False))
 
 
 async def cmd_search(ean: str = None, query: str = None, cep: str = None):
@@ -231,6 +250,14 @@ def main():
     client_parser.add_argument("--limit", type=int, default=None, help="Limite de produtos a consultar")
     client_parser.add_argument("--cep", type=str, default=None, help="CEP para contextualizar preço e estoque")
 
+    # Comando listar-eans
+    eans_parser = subparsers.add_parser(
+        "listar-eans",
+        help="Imprime os EANs da planilha como lista JS, para a coleta assistida",
+    )
+    eans_parser.add_argument("--folder", type=str, required=True, help="Nome da pasta do cliente")
+    eans_parser.add_argument("--limit", type=int, default=None, help="Limite de EANs")
+
     # Comando validate-scrapers
     validation_parser = subparsers.add_parser(
         "validate-scrapers",
@@ -257,6 +284,8 @@ def main():
         cmd_list_clients()
     elif args.command == "search":
         asyncio.run(cmd_search(ean=args.ean, query=args.query, cep=args.cep))
+    elif args.command == "listar-eans":
+        cmd_listar_eans(folder=args.folder, limit=args.limit)
     elif args.command == "scrape-client":
         asyncio.run(cmd_scrape_client(folder=args.folder, limit=args.limit, cep=args.cep))
     elif args.command == "validate-scrapers":

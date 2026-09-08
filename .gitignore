@@ -43,3 +43,7 @@ Clientes/
 .vscode/
 *.swp
 *.swo
+
+# Capturas da coleta assistida (dados operacionais, nao versionados)
+capturas/*.json
+!capturas/.gitkeep

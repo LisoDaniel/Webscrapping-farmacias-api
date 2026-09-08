@@ -15,18 +15,23 @@ derrotar um controle de acesso, não integrar com um serviço, então não é fe
 aqui. É o mesmo critério já aplicado à Araujo: sem canal autorizado, sem
 coleta.
 
-Enquanto isso durar, toda consulta devolve ``ERROR`` com o motivo. O que não
-pode acontecer é devolver ``NOT_FOUND``: isso faria o relatório do cliente
-afirmar que o produto não existe na rede, quando na verdade nem chegamos a
-perguntar. Um preço ausente é um incômodo; um preço ausente disfarçado de
-"produto inexistente" é informação errada entregue ao consultor.
+O caminho usado no lugar disso é a **coleta assistida**: o operador roda a busca
+no próprio navegador com ``tools/captura_panvel.js``, que baixa um JSON, e o
+projeto consome esse arquivo por ``CaptureStore``. As requisições saem de uma
+sessão real, aberta por uma pessoa — nada é falsificado. Quando há captura
+recente do EAN, ela é usada e a rede nem é consultada; a cotação fica datada
+pelo instante da captura, não pelo da leitura.
 
-O parser abaixo está pronto e testado contra o formato da resposta. Havendo
-acesso autorizado, basta a requisição passar.
+Sem captura, a consulta devolve ``ERROR`` com o motivo. O que não pode
+acontecer é devolver ``NOT_FOUND``: isso faria o relatório do cliente afirmar
+que o produto não existe na rede, quando na verdade nem chegamos a perguntar.
+Um preço ausente é um incômodo; um preço ausente disfarçado de "produto
+inexistente" é informação errada entregue ao consultor.
 """
 
 from typing import Any, Optional
 
+from app.core.capture_store import CaptureExpired, CaptureStore
 from app.core.logging import logger
 from app.models.product import PharmacyEnum, PriceQuote, ScrapeStatusEnum
 from app.scrapers.base import BaseScraper
@@ -40,6 +45,10 @@ class PanvelScraper(BaseScraper):
     # Identifica a aplicação do storefront, não uma pessoa: vai embutido no
     # bundle e é idêntico para todo visitante.
     app_token = "ZYkPuDaVJEiD"
+
+    def __init__(self, timeout: Optional[float] = None, capture_store: Optional[CaptureStore] = None):
+        super().__init__(timeout)
+        self.capture_store = capture_store or CaptureStore()
 
     def _result(
         self,
@@ -55,17 +64,36 @@ class PanvelScraper(BaseScraper):
             error_message=error_message,
         )
 
-    def _from_item(self, item: dict[str, Any], requested_ean: Optional[str] = None) -> PriceQuote:
-        price_data = item.get("price") or item.get("discount") or {}
+    @staticmethod
+    def _numero(valor: Any) -> Optional[float]:
+        return float(valor) if isinstance(valor, (int, float)) and not isinstance(valor, bool) else None
+
+    @classmethod
+    def _price_fields(cls, item: dict[str, Any]) -> tuple[Optional[float], Optional[float]]:
+        """Aceita o preço como número solto ou dentro de um objeto aninhado.
+
+        A busca varia a forma conforme o item esteja em promoção, então as duas
+        são tratadas em vez de assumir uma e quebrar na outra.
+        """
+        aninhado = next(
+            (item[chave] for chave in ("price", "discount") if isinstance(item.get(chave), dict)),
+            {},
+        )
         price = (
-            price_data.get("dealPrice")
-            or price_data.get("price")
-            or item.get("dealPrice")
-            or item.get("price")
+            cls._numero(aninhado.get("dealPrice"))
+            or cls._numero(aninhado.get("price"))
+            or cls._numero(item.get("dealPrice"))
+            or cls._numero(item.get("price"))
         )
         list_price = (
-            price_data.get("originalPrice") or item.get("originalPrice") or item.get("listPrice")
+            cls._numero(aninhado.get("originalPrice"))
+            or cls._numero(item.get("originalPrice"))
+            or cls._numero(item.get("listPrice"))
         )
+        return price, list_price
+
+    def _from_item(self, item: dict[str, Any], requested_ean: Optional[str] = None) -> PriceQuote:
+        price, list_price = self._price_fields(item)
         link = item.get("link") or item.get("url") or item.get("seoUrl")
         if link and not link.startswith("http"):
             link = f"{self.base_url}{link if link.startswith('/') else '/' + link}"
@@ -193,7 +221,25 @@ class PanvelScraper(BaseScraper):
             )
         return self._parse_payload(payload, requested_ean)
 
+    def _from_capture(self, ean: str) -> Optional[PriceQuote]:
+        """Usa o payload coletado no navegador, quando houver um recente."""
+        try:
+            captured = self.capture_store.get(self.pharmacy_key.value, ean)
+        except CaptureExpired as exc:
+            # Distinto de "sem captura": o operador tem uma ação clara a tomar.
+            return self._result(ScrapeStatusEnum.ERROR, ean, str(exc))
+        if captured is None:
+            return None
+
+        quote = self._parse_payload(captured.payload, ean)
+        # A cotação vale para o instante da captura, não para agora. Isso mantém
+        # o histórico honesto sobre quando o preço foi de fato observado.
+        return quote.model_copy(update={"scraped_at": captured.captured_at})
+
     async def search_by_ean(self, ean: str) -> PriceQuote:
+        from_capture = self._from_capture(ean)
+        if from_capture is not None:
+            return from_capture
         return await self._search(ean, requested_ean=ean)
 
     async def search_by_term(self, term: str) -> PriceQuote:

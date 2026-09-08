@@ -36,7 +36,7 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 | :--- | :---: | :--- | :--- |
 | **Drogarias Pacheco** | ~~Alta~~ | VTEX Intelligent Search. | ✅ **CONCLUÍDO** |
 | **Drogaria São Paulo (DPSP)** | ~~Média~~ | Pertence ao grupo Pacheco — herdou o scraper. | ✅ **CONCLUÍDO** |
-| **Panvel Farmácias** | **Alta** | A rota existe e funciona, mas o bot manager da Azion devolve HTTP 404 sintético para clientes automatizados. | 🔴 **BLOQUEADO** — depende de API/feed autorizado pela rede |
+| **Panvel Farmácias** | **Alta** | Bot manager da Azion devolve HTTP 404 sintético para cliente automatizado. | 🟡 **COLETA ASSISTIDA** — busca feita no navegador do operador |
 | **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede responde HTTP 403. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
 | **Farma Conde** | ~~Alta~~ | Catálogo VTEX público. | ✅ **CONCLUÍDO** — validado por EAN exato |
 
@@ -45,7 +45,13 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 
    Passar por ele exigiria reproduzir o cabeçalho `finger-print` e replicar aqueles cookies, sinais que existem só para separar humano de robô. Isso é derrotar um controle de acesso, não integrar com um serviço, e por isso não é feito aqui — mesmo critério da Araujo. O `app-token` é enviado por identificar a aplicação do storefront (é público e igual para todo visitante); o `user-id` fica de fora porque identifica uma conta pessoal, e associá-la a tráfego automatizado é risco para o titular.
 
-   Enquanto não houver acesso autorizado, toda consulta devolve `ERROR` com o motivo. **Nunca `NOT_FOUND`**: isso faria o relatório afirmar que a rede não vende o produto, quando na verdade não chegamos a perguntar. O parser já está pronto e testado contra o formato da resposta; havendo acesso, basta a requisição passar.
+   **Coleta assistida** é o caminho adotado no lugar disso. O operador roda `tools/captura_panvel.js` no console do próprio navegador; o script percorre os EANs com intervalo entre as chamadas e baixa um `panvel.json`, que vai para a pasta `capturas/`. As requisições saem de uma sessão real aberta por uma pessoa — nada é falsificado, e o controle da rede continua valendo. Havendo captura recente do EAN, ela é usada e a rede nem é consultada.
+
+   Duas salvaguardas: a cotação é datada pelo instante da captura (não pelo da leitura), então o histórico registra quando o preço foi de fato observado; e capturas acima de `CAPTURE_MAX_AGE_HOURS` (24 h por padrão) são recusadas com aviso para refazer a coleta, em vez de virarem preço desatualizado apresentado como atual.
+
+   Sem captura, a consulta devolve `ERROR` com o motivo. **Nunca `NOT_FOUND`**: isso faria o relatório afirmar que a rede não vende o produto, quando na verdade não chegamos a perguntar.
+
+   O `CaptureStore` (`app/core/capture_store.py`) é genérico por rede, então a Araujo pode usar o mesmo mecanismo quando fizer sentido.
 2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
 
 ### Garantia de correspondência exata por EAN
