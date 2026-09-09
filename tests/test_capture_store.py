@@ -7,7 +7,7 @@ um dado que não é. Uma captura velha tem de virar erro acionável, não preço
 import json
 import tempfile
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.core.capture_store import CaptureExpired, CaptureStore
@@ -64,6 +64,42 @@ class CaptureStoreTests(unittest.TestCase):
     def test_malformed_file_is_ignored(self):
         (self.directory / "panvel.json").write_text("{ isso nao e json", encoding="utf-8")
         self.assertIsNone(self.store.get("panvel", EAN))
+
+    def test_utc_timestamp_from_the_browser_is_converted_to_local(self):
+        """O navegador grava em UTC; a comparação de validade é em hora local.
+
+        Sem converter, a captura parecia estar no futuro pelo offset do fuso e
+        a verificação de 24 h nunca expirava nada.
+        """
+        agora = datetime.now()
+        em_utc = agora.astimezone(timezone.utc)
+        (self.directory / "panvel.json").write_text(
+            json.dumps(
+                {
+                    "captured_at": em_utc.isoformat().replace("+00:00", "Z"),
+                    "results": {EAN: {"items": [{"ean": EAN}]}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        captured = self.store.get("panvel", EAN)
+        self.assertIsNotNone(captured)
+        # Tolera o segundo de borda entre montar e ler.
+        self.assertLess(abs((captured.captured_at - agora).total_seconds()), 2)
+
+    def test_stale_utc_capture_still_expires(self):
+        velha = (datetime.now() - timedelta(hours=30)).astimezone(timezone.utc)
+        (self.directory / "panvel.json").write_text(
+            json.dumps(
+                {
+                    "captured_at": velha.isoformat().replace("+00:00", "Z"),
+                    "results": {EAN: {"items": [{"ean": EAN}]}},
+                }
+            ),
+            encoding="utf-8",
+        )
+        with self.assertRaises(CaptureExpired):
+            self.store.get("panvel", EAN)
 
     def test_capture_without_timestamp_is_ignored(self):
         (self.directory / "panvel.json").write_text(

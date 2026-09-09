@@ -79,14 +79,23 @@ class CaptureStore:
 
     @staticmethod
     def _parse_timestamp(raw: Any) -> Optional[datetime]:
+        """Converte o carimbo da captura para hora local ingênua.
+
+        O navegador grava em UTC (``...Z``) e o resto do sistema compara com
+        ``datetime.now()``, que é local. Descartar o fuso em vez de converter
+        fazia a captura parecer estar no futuro pela diferença do offset — e,
+        com isso, a verificação de validade nunca expirava nada.
+        """
         if not isinstance(raw, str):
             return None
         try:
-            # O snippet grava em ISO 8601; o sufixo Z não é aceito pelo
-            # fromisoformat das versões mais antigas.
-            return datetime.fromisoformat(raw.replace("Z", "+00:00")).replace(tzinfo=None)
+            # O sufixo Z não é aceito pelo fromisoformat das versões antigas.
+            momento = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except ValueError:
             return None
+        if momento.tzinfo is not None:
+            momento = momento.astimezone().replace(tzinfo=None)
+        return momento
 
     def get(self, pharmacy_key: str, ean: str) -> Optional[CapturedPayload]:
         """Devolve o payload do EAN, ou None se a rede não foi capturada.

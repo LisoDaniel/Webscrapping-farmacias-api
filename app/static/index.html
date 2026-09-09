@@ -29,7 +29,7 @@
       <button>Pesquisar</button>
     </form>
     <div id="message" aria-live="polite"></div>
-    <table id="results" hidden><thead><tr><th>Farmácia</th><th>Produto</th><th>Preço</th><th>Status</th><th>Oferta</th></tr></thead><tbody></tbody></table>
+    <table id="results" hidden><thead><tr><th>Farmácia</th><th>Produto</th><th>Preço</th><th>Observado</th><th>Status</th><th>Oferta</th></tr></thead><tbody></tbody></table>
   </section>
   <section>
     <h2>Planilhas de clientes</h2>
@@ -46,6 +46,15 @@
 <script>
 const api = '/api/v1';
 const escapeHtml = value => String(value ?? '').replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+// Redes que bloqueiam coleta automatizada entram por captura feita no navegador,
+// então o preço pode ter horas. Mostrar a idade evita ler dado antigo como atual.
+function idadeCotacao(iso) {
+  if (!iso) return {texto: '-', antiga: false};
+  const minutos = (Date.now() - new Date(iso).getTime()) / 60000;
+  if (minutos < 5) return {texto: 'agora', antiga: false};
+  if (minutos < 90) return {texto: `há ${Math.round(minutos)} min`, antiga: true};
+  return {texto: `há ${Math.round(minutos / 60)} h`, antiga: true};
+}
 async function loadClients() {
   const response = await fetch(`${api}/clients`); const clients = await response.json();
   document.querySelector('#clients').innerHTML = clients.map(c => `<tr><td>${escapeHtml(c.client_name)}</td><td>${escapeHtml(c.city || '-')}/${escapeHtml(c.state || '-')}</td><td>${c.total_products}</td><td><button data-folder="${escapeHtml(c.folder_name)}">Gerar relatórios</button></td></tr>`).join('');
@@ -62,7 +71,8 @@ async function startScrape(folder) {
 document.querySelector('#search-form').onsubmit = async event => { event.preventDefault(); const term = document.querySelector('#term').value.trim(); const cep = document.querySelector('#cep').value.trim(); const body = /^\d{7,14}$/.test(term) ? {ean:term, cep:cep||undefined} : {query:term, cep:cep||undefined};
   const message = document.querySelector('#message'); message.textContent = 'Consultando redes…'; const response = await fetch(`${api}/search`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}); const data = await response.json();
   if (!response.ok) { message.textContent = data.detail || 'Consulta inválida.'; return; } message.textContent = data.city ? `Região: ${data.city}/${data.state}` : '';
-  document.querySelector('#results tbody').innerHTML = data.quotes.map(q => `<tr><td>${escapeHtml(q.pharmacy_name)}</td><td>${escapeHtml(q.product_name||'-')}</td><td>${q.price == null ? '-' : 'R$ '+q.price.toFixed(2)}</td><td class="${q.status === 'success' ? 'ok' : q.status === 'blocked' ? 'warn' : 'error'}">${escapeHtml(q.status)}</td><td>${q.product_url ? `<a href="${escapeHtml(q.product_url)}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td></tr>`).join(''); document.querySelector('#results').hidden = false;
+  document.querySelector('#results tbody').innerHTML = data.quotes.map(q => { const idade = q.price == null ? {texto:'-',antiga:false} : idadeCotacao(q.scraped_at);
+    return `<tr><td>${escapeHtml(q.pharmacy_name)}</td><td>${escapeHtml(q.product_name||'-')}</td><td>${q.price == null ? '-' : 'R$ '+q.price.toFixed(2)}</td><td class="${idade.antiga ? 'warn' : ''}" title="${idade.antiga ? 'Preço vindo de captura no navegador, não de consulta ao vivo' : ''}">${escapeHtml(idade.texto)}</td><td class="${q.status === 'success' ? 'ok' : q.status === 'blocked' ? 'warn' : 'error'}">${escapeHtml(q.status)}</td><td>${q.product_url ? `<a href="${escapeHtml(q.product_url)}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td></tr>`; }).join(''); document.querySelector('#results').hidden = false;
 };
 document.querySelector('#upload-form').onsubmit = async event => { event.preventDefault(); const form = new FormData(); form.append('client_name', document.querySelector('#client-name').value); form.append('file', document.querySelector('#file').files[0]); const response = await fetch(`${api}/clients/upload`, {method:'POST',body:form}); const data = await response.json(); document.querySelector('#clients-message').textContent = response.ok ? 'Planilha enviada.' : (data.detail || 'Falha no envio.'); if(response.ok) loadClients(); };
 loadClients();
