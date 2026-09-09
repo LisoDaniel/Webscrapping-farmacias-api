@@ -58,6 +58,20 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
    **A resposta não traz o EAN.** O item tem `name`, `panvelCode`, `link` e `price`, e nada de código de barras. Como não há o que conferir, a correspondência é confirmada pela unicidade: `totalItems == 1` para uma consulta de 13 dígitos é a loja identificando o produto; resposta ambígua não vira cotação. Cuidado com `price.pack`, que é preço por unidade em pacote fechado (4 un.) e não serve como preço avulso.
 2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
 
+### Retry das consultas
+
+`SCRAPER_RETRY_ATTEMPTS` existia na configuração mas não era lido por ninguém.
+Agora vale: é o **total** de tentativas por farmácia (1 desliga), com espera
+exponencial e folga aleatória entre elas (`SCRAPER_RETRY_BASE_DELAY` e
+`SCRAPER_RETRY_MAX_DELAY`). A folga evita que as farmácias consultadas em
+paralelo repitam todas no mesmo instante depois de uma queda de rede.
+
+Só falhas técnicas são repetidas. `ERROR` significa que a consulta não chegou a
+acontecer — queda de rede, timeout, resposta ilegível — e repetir pode resolver.
+`NOT_FOUND` é resposta da loja e `BLOCKED` é a loja recusando: repetir o
+primeiro não muda nada e repetir o segundo é insistir com quem acabou de pedir
+para parar. Ambos saem na primeira tentativa.
+
 ### Droga Raia e Drogasil: por que saiu o `curl.exe`
 
 O storefront responde 403 a clientes HTTP comuns e entrega o HTML a quem se

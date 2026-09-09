@@ -1,4 +1,5 @@
 import asyncio
+import random
 from typing import List, Optional
 from app.core.config import settings
 from app.core.logging import logger
@@ -19,6 +20,66 @@ class ScraperService:
 
     def __init__(self):
         self.semaphore = asyncio.Semaphore(settings.SCRAPER_MAX_CONCURRENCY)
+        self.retry_attempts = max(1, settings.SCRAPER_RETRY_ATTEMPTS)
+        self.retry_base_delay = settings.SCRAPER_RETRY_BASE_DELAY
+        self.retry_max_delay = settings.SCRAPER_RETRY_MAX_DELAY
+
+    def _atraso(self, tentativa: int) -> float:
+        """Espera exponencial com folga aleatória entre as tentativas.
+
+        A folga evita que as farmácias consultadas em paralelo repitam todas no
+        mesmo instante depois de uma queda de rede.
+        """
+        atraso = self.retry_base_delay * (2 ** (tentativa - 1))
+        return min(atraso, self.retry_max_delay) + random.uniform(0, self.retry_base_delay / 2)
+
+    async def _dormir(self, segundos: float) -> None:
+        await asyncio.sleep(segundos)
+
+    async def _buscar_com_retry(
+        self,
+        scraper,
+        pharmacy: PharmacyEnum,
+        ean: Optional[str],
+        term: Optional[str],
+    ) -> PriceQuote:
+        """Repete apenas falhas técnicas.
+
+        ``ERROR`` significa que a consulta não chegou a acontecer — queda de
+        rede, timeout, resposta ilegível — e repetir pode resolver.
+
+        ``NOT_FOUND`` é uma resposta da loja, e ``BLOCKED`` é a loja recusando
+        a consulta. Repetir o primeiro não muda nada; repetir o segundo é
+        insistir com quem acabou de pedir para parar. Ambos saem na primeira
+        tentativa.
+        """
+        ultima: Optional[PriceQuote] = None
+        for tentativa in range(1, self.retry_attempts + 1):
+            try:
+                cotacao = await scraper.search(ean=ean, term=term)
+            except Exception as exc:
+                logger.error(f"Erro no scraper {pharmacy.value}: {exc}")
+                cotacao = PriceQuote(
+                    pharmacy_key=pharmacy,
+                    pharmacy_name=scraper.name,
+                    ean=ean,
+                    status=ScrapeStatusEnum.ERROR,
+                    error_message=str(exc),
+                )
+
+            if cotacao.status != ScrapeStatusEnum.ERROR:
+                return cotacao
+
+            ultima = cotacao
+            if tentativa < self.retry_attempts:
+                espera = self._atraso(tentativa)
+                logger.warning(
+                    f"[{scraper.name}] tentativa {tentativa}/{self.retry_attempts} falhou "
+                    f"({cotacao.error_message}); repetindo em {espera:.1f}s"
+                )
+                await self._dormir(espera)
+
+        return ultima
 
     async def _execute_single_scraper(
         self,
@@ -39,18 +100,8 @@ class ScraperService:
                     status=ScrapeStatusEnum.ERROR,
                     error_message=f"Scraper não implementado para {pharmacy.value}"
                 )
-            try:
-                scraper.configure_location(cep=cep, city=city, state=state)
-                return await scraper.search(ean=ean, term=term)
-            except Exception as e:
-                logger.error(f"Erro no scraper {pharmacy.value}: {e}")
-                return PriceQuote(
-                    pharmacy_key=pharmacy,
-                    pharmacy_name=scraper.name,
-                    ean=ean,
-                    status=ScrapeStatusEnum.ERROR,
-                    error_message=str(e)
-                )
+            scraper.configure_location(cep=cep, city=city, state=state)
+            return await self._buscar_com_retry(scraper, pharmacy, ean, term)
 
     async def search(self, request: SearchRequest) -> SearchResponse:
         """Executa busca paralela em todas as farmácias solicitadas."""

@@ -12,7 +12,11 @@ class Settings(BaseSettings):
     # Scraping
     SCRAPER_TIMEOUT_SECONDS: float = 15.0
     SCRAPER_MAX_CONCURRENCY: int = 5
+    # Total de tentativas por farmácia, não de repetições: 1 desliga o retry.
+    # Só falhas técnicas são repetidas — ver ScraperService._buscar_com_retry.
     SCRAPER_RETRY_ATTEMPTS: int = 2
+    SCRAPER_RETRY_BASE_DELAY: float = 0.5
+    SCRAPER_RETRY_MAX_DELAY: float = 4.0
 
     # Banco de dados. O padrão corresponde ao PostgreSQL do docker-compose.
     DATABASE_URL: str = (
