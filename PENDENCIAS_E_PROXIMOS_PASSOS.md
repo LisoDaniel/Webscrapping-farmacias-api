@@ -36,7 +36,7 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 | :--- | :---: | :--- | :--- |
 | **Drogarias Pacheco** | ~~Alta~~ | VTEX Intelligent Search. | ✅ **CONCLUÍDO** |
 | **Drogaria São Paulo (DPSP)** | ~~Média~~ | Pertence ao grupo Pacheco — herdou o scraper. | ✅ **CONCLUÍDO** |
-| **Panvel Farmácias** | **Alta** | Bot manager da Azion devolve HTTP 404 sintético para cliente automatizado. | 🟡 **COLETA ASSISTIDA** — busca feita no navegador do operador |
+| **Panvel Farmácias** | ~~Alta~~ | Bot manager da Azion devolve HTTP 404 sintético para cliente automatizado. | ✅ **COLETA ASSISTIDA** — validada com preços reais em 08/09/2026 |
 | **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede responde HTTP 403. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
 | **Farma Conde** | ~~Alta~~ | Catálogo VTEX público. | ✅ **CONCLUÍDO** — validado por EAN exato |
 
@@ -52,6 +52,10 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
    Sem captura, a consulta devolve `ERROR` com o motivo. **Nunca `NOT_FOUND`**: isso faria o relatório afirmar que a rede não vende o produto, quando na verdade não chegamos a perguntar.
 
    O `CaptureStore` (`app/core/capture_store.py`) é genérico por rede, então a Araujo pode usar o mesmo mecanismo quando fizer sentido.
+
+   **Contrato da busca**, verificado em 08/09/2026 por captura real: `POST /api/v3/search?type=CSR&covenantCode=<código>&uf=<UF>`. O BFF exige os cabeçalhos `user-id`, `client-ip` (constante `"1"`), `sessionId` e `app-token`, e recusa com HTTP 400 nomeando um faltante por vez. O `finger-print` que o navegador envia **não** é exigido — foi por isso que a coleta assistida coube sem tocar no controle anti-bot.
+
+   **A resposta não traz o EAN.** O item tem `name`, `panvelCode`, `link` e `price`, e nada de código de barras. Como não há o que conferir, a correspondência é confirmada pela unicidade: `totalItems == 1` para uma consulta de 13 dígitos é a loja identificando o produto; resposta ambígua não vira cotação. Cuidado com `price.pack`, que é preço por unidade em pacote fechado (4 un.) e não serve como preço avulso.
 2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
 
 ### Garantia de correspondência exata por EAN

@@ -1,7 +1,21 @@
 """Scraper da Panvel.
 
-A rota de busca existe e funciona: ``POST /api/v3/search?type=CSR&uf=<UF>``,
-com o termo no corpo JSON. O ``uf`` importa — os preços são regionais.
+CONTRATO DA BUSCA (verificado em 08/09/2026)
+
+``POST /api/v3/search?type=CSR&covenantCode=<código>&uf=<UF>``, com o termo no
+corpo JSON. O ``uf`` importa: os preços são regionais.
+
+O BFF recusa a chamada com HTTP 400 nomeando o que falta, um item por vez.
+São obrigatórios os cabeçalhos ``user-id``, ``client-ip`` (o site manda a
+constante "1") e ``sessionId``, além do ``app-token``. O ``covenantCode`` é
+obrigatório na query string.
+
+A busca aceita o código de barras como termo, mas **não devolve o EAN no
+item** — só ``name``, ``panvelCode``, ``link`` e ``price``. Sem nada a conferir
+no payload, o que confirma a correspondência é a unicidade: um único resultado
+para um código de 13 dígitos é a loja identificando o item. Resposta ambígua
+não vira cotação. Atenção a ``price.pack``, que traz o preço por unidade em
+pacote fechado e não serve como preço avulso.
 
 O que impede a coleta automatizada é o bot manager da Azion, que fica na frente
 do domínio. Um navegador recebe HTTP 200; um cliente automatizado recebe 404,
@@ -98,7 +112,9 @@ class PanvelScraper(BaseScraper):
         if link and not link.startswith("http"):
             link = f"{self.base_url}{link if link.startswith('/') else '/' + link}"
 
-        found_ean = str(item.get("ean") or item.get("barcode") or "").strip() or None
+        # O EAN consultado só é assumido quando a chamada acima já confirmou a
+        # correspondência — nunca como palpite sobre um resultado ambíguo.
+        found_ean = str(item.get("ean") or item.get("barcode") or "").strip() or requested_ean
         if price is None:
             return PriceQuote(
                 pharmacy_key=self.pharmacy_key,
@@ -133,7 +149,12 @@ class PanvelScraper(BaseScraper):
             # o produto.
             return self._result(ScrapeStatusEnum.NOT_FOUND, requested_ean)
         if requested_ean:
-            exact = next(
+            # A Panvel não devolve o EAN no item — só nome, panvelCode e preço.
+            # Como a busca aceita o código de barras como termo, o que confirma
+            # a correspondência é a unicidade da resposta: um único produto para
+            # um código de 13 dígitos é a própria loja dizendo qual item é.
+            # Mais de um resultado é ambíguo e não autoriza cotar nenhum deles.
+            exato = next(
                 (
                     item
                     for item in items
@@ -141,12 +162,12 @@ class PanvelScraper(BaseScraper):
                 ),
                 None,
             )
-            # Sem SKU com o EAN exato, não cotamos outro item no lugar dele.
-            return (
-                self._from_item(exact, requested_ean)
-                if exact
-                else self._result(ScrapeStatusEnum.NOT_FOUND, requested_ean)
-            )
+            if exato is not None:
+                return self._from_item(exato, requested_ean)
+            total = payload.get("totalItems", len(items))
+            if len(items) == 1 and total == 1:
+                return self._from_item(items[0], requested_ean)
+            return self._result(ScrapeStatusEnum.NOT_FOUND, requested_ean)
         return self._from_item(items[0])
 
     async def _search(self, term: str, requested_ean: Optional[str] = None) -> PriceQuote:
