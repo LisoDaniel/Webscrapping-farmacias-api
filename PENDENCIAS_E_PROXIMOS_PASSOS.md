@@ -58,6 +58,22 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
    **A resposta não traz o EAN.** O item tem `name`, `panvelCode`, `link` e `price`, e nada de código de barras. Como não há o que conferir, a correspondência é confirmada pela unicidade: `totalItems == 1` para uma consulta de 13 dígitos é a loja identificando o produto; resposta ambígua não vira cotação. Cuidado com `price.pack`, que é preço por unidade em pacote fechado (4 un.) e não serve como preço avulso.
 2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
 
+### Leitura das colunas das planilhas
+
+As planilhas de cliente não seguem um layout único. Quatro das cinco trazem
+laboratório e grupo em C e D; a do MATHEUS insere PMC e preço líquido antes,
+empurrando as duas para E e F. O parser fixava laboratório na coluna 3 e grupo
+na 4, então o relatório do MATHEUS saía com o PMC no lugar do laboratório e o
+preço no lugar do grupo.
+
+Agora todas as colunas são localizadas pelo cabeçalho (`_mapear_colunas`), como
+PMC e preço já eram. O layout fixo permanece só como último recurso, para
+planilhas sem cabeçalho reconhecível.
+
+Vale notar que **só o MATHEUS tem preço do cliente na planilha**. Nos outros
+quatro, `PREÇO CLIENTE` e `DIFERENÇA % (vs CLIENTE)` saem vazios no relatório —
+não por falha de leitura, mas porque o dado não está lá.
+
 ### Retry das consultas
 
 `SCRAPER_RETRY_ATTEMPTS` existia na configuração mas não era lido por ninguém.

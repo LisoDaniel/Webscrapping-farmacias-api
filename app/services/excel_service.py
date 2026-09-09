@@ -14,8 +14,74 @@ from app.models.product import PharmacyEnum, PriceQuote, ProductItem, ScrapeStat
 from app.scrapers.registry import ScraperRegistry
 
 
+# Marcas de cabeçalho por campo, na ordem em que são testadas. A primeira que
+# aparecer no texto da célula define a coluna.
+_CABECALHOS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("ean", ("CÓD. BARRAS", "COD. BARRAS", "CÓDIGO DE BARRAS", "CODIGO DE BARRAS", "EAN")),
+    ("pmc", ("PMC",)),
+    ("net_price", ("PREÇO LÍQ", "PRECO LIQ")),
+    ("laboratory", ("FABRICANTE", "LABORATÓRIO", "LABORATORIO")),
+    ("group", ("GRUPO",)),
+    ("name", ("PRODUTO", "DESCRIÇÃO", "DESCRICAO")),
+)
+
+# Layout assumido quando não há cabeçalho reconhecível.
+_COLUNAS_PADRAO = {"ean": 1, "name": 2, "laboratory": 3, "group": 4}
+
+
 class ExcelService:
     """Serviço para leitura de planilhas de clientes e geração de relatórios de preços."""
+
+    @staticmethod
+    def _mapear_colunas(sheet, max_rows: int = 40) -> dict:
+        """Mapeia as colunas pelo cabeçalho, em vez de assumir posições fixas.
+
+        Os clientes não usam o mesmo layout. A planilha do MATHEUS traz PMC e
+        preço líquido em C e D, o que empurra laboratório e grupo para E e F;
+        as demais têm laboratório e grupo já em C e D. Com posições fixas, o
+        relatório do MATHEUS saía com números nas colunas de laboratório e
+        grupo.
+
+        A busca começa pela linha de cabeçalho — a que nomeia o produto — para
+        não confundir com o bloco de concorrentes, que fica em outras colunas
+        mais abaixo.
+        """
+        for r_idx in range(1, min(sheet.max_row, max_rows) + 1):
+            textos = [
+                valor.strip().upper() if isinstance(valor, str) else ""
+                for valor in (sheet.cell(r_idx, c).value for c in range(1, 15))
+            ]
+            if not any(texto.startswith("PRODUTO") for texto in textos):
+                continue
+
+            colunas: dict = {}
+            for indice, texto in enumerate(textos, start=1):
+                if not texto:
+                    continue
+                for campo, marcas in _CABECALHOS:
+                    if campo not in colunas and any(marca in texto for marca in marcas):
+                        colunas[campo] = indice
+                        break
+            if "ean" in colunas and "name" in colunas:
+                return colunas
+        return {}
+
+    @staticmethod
+    def _texto(sheet, row_idx: int, col_idx: Optional[int]) -> Optional[str]:
+        if not col_idx:
+            return None
+        valor = sheet.cell(row_idx, col_idx).value
+        if valor is None:
+            return None
+        texto = str(valor).strip()
+        return texto or None
+
+    @staticmethod
+    def _numero(sheet, row_idx: int, col_idx: Optional[int]) -> Optional[float]:
+        if not col_idx:
+            return None
+        valor = sheet.cell(row_idx, col_idx).value
+        return float(valor) if isinstance(valor, (int, float)) and not isinstance(valor, bool) else None
 
     @staticmethod
     def list_available_clients() -> List[ClientInfo]:
@@ -114,16 +180,17 @@ class ExcelService:
         competitors: List[CompetitorConfig] = []
         products: List[ProductItem] = []
 
-        # Localizar colunas
-        ean_col_idx = 1
-        name_col_idx = 2
-        lab_col_idx = 3
-        group_col_idx = 4
-        pmc_col_idx = None
-        price_col_idx = None
+        # As colunas vêm do cabeçalho; o layout fixo é só o último recurso.
+        colunas = ExcelService._mapear_colunas(sheet) or dict(_COLUNAS_PADRAO)
+        ean_col_idx = colunas.get("ean", 1)
+        name_col_idx = colunas.get("name", 2)
+        lab_col_idx = colunas.get("laboratory")
+        group_col_idx = colunas.get("group")
+        pmc_col_idx = colunas.get("pmc")
+        price_col_idx = colunas.get("net_price")
 
-        # Varre as linhas para metadados e produtos
-        # Primeiro passo: Extrair metadados das primeiras 40 linhas (cidade, estado, concorrentes, colunas)
+        # Primeiro passo: metadados das primeiras 40 linhas (cidade, estado,
+        # CEP e concorrentes). As colunas já vieram do cabeçalho, acima.
         max_meta_rows = min(sheet.max_row, 40)
         for r_idx in range(1, max_meta_rows + 1):
             row_vals = [sheet.cell(r_idx, c_idx).value for c_idx in range(1, 15)]
@@ -131,11 +198,7 @@ class ExcelService:
                 if not val or not isinstance(val, str):
                     continue
                 v_upper = val.upper().strip()
-                if "PMC" in v_upper and pmc_col_idx is None:
-                    pmc_col_idx = col_idx + 1
-                elif ("PREÇO LÍQ" in v_upper or "PRECO LIQ" in v_upper) and price_col_idx is None:
-                    price_col_idx = col_idx + 1
-                elif v_upper.startswith("CIDADE:"):
+                if v_upper.startswith("CIDADE:"):
                     city = val.split(":", 1)[1].strip()
                 elif v_upper.startswith("ESTADO:"):
                     state = normalize_state(val.split(":", 1)[1])
@@ -152,27 +215,19 @@ class ExcelService:
 
         # Segundo passo: Coleta de produtos respeitando o limit
         for row_idx in range(1, sheet.max_row + 1):
-            cell_vals = [sheet.cell(row_idx, col_idx).value for col_idx in range(1, 6)]
+            raw_ean = sheet.cell(row_idx, ean_col_idx).value
 
             # Verificar se é linha de produto (EAN válido)
-            first_val = cell_vals[0]
-            if first_val and str(first_val).replace(".0", "").strip().isdigit():
-                clean_ean = str(first_val).replace(".0", "").strip()
-                prod_name = str(cell_vals[1] or f"Produto EAN {clean_ean}").strip()
-                lab = str(cell_vals[2] or "").strip() if len(cell_vals) > 2 else None
-                grp = str(cell_vals[3] or "").strip() if len(cell_vals) > 3 else None
-
-                pmc = None
-                if pmc_col_idx:
-                    raw_pmc = sheet.cell(row_idx, pmc_col_idx).value
-                    if isinstance(raw_pmc, (int, float)):
-                        pmc = float(raw_pmc)
-
-                net_price = None
-                if price_col_idx:
-                    raw_net = sheet.cell(row_idx, price_col_idx).value
-                    if isinstance(raw_net, (int, float)):
-                        net_price = float(raw_net)
+            if raw_ean and str(raw_ean).replace(".0", "").strip().isdigit():
+                clean_ean = str(raw_ean).replace(".0", "").strip()
+                prod_name = (
+                    ExcelService._texto(sheet, row_idx, name_col_idx)
+                    or f"Produto EAN {clean_ean}"
+                )
+                lab = ExcelService._texto(sheet, row_idx, lab_col_idx)
+                grp = ExcelService._texto(sheet, row_idx, group_col_idx)
+                pmc = ExcelService._numero(sheet, row_idx, pmc_col_idx)
+                net_price = ExcelService._numero(sheet, row_idx, price_col_idx)
 
                 products.append(ProductItem(
                     ean=clean_ean,
