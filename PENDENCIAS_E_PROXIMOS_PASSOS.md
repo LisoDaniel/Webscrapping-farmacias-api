@@ -24,8 +24,8 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 - [x] **Scrapers 100% Funcionais (7 redes)**:
   - **Farmácia Preço Popular** (`precopopular.com.br`) — API VTEX direta (preços, descontos, links).
   - **Farmácias São João** (`saojoaofarmacias.com.br`) — API VTEX direta (preços, disponibilidade, links).
-  - **Droga Raia** (`drogaraia.com.br`) — Subprocesso nativo de alta velocidade com parser do Next.js `__NEXT_DATA__` contornando proteções WAF.
-  - **Drogasil** (`drogasil.com.br`) — Subprocesso nativo de alta velocidade com parser do Next.js `__NEXT_DATA__` contornando proteções WAF.
+  - **Droga Raia** (`drogaraia.com.br`) — `curl_cffi` em processo com parser do Next.js `__NEXT_DATA__`.
+  - **Drogasil** (`drogasil.com.br`) — `curl_cffi` em processo com parser do Next.js `__NEXT_DATA__`.
   - **Pague Menos** (`paguemenos.com.br`) — API VTEX Intelligent Search de alta performance (preços, descontos, links).
 
 ---
@@ -57,6 +57,24 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 
    **A resposta não traz o EAN.** O item tem `name`, `panvelCode`, `link` e `price`, e nada de código de barras. Como não há o que conferir, a correspondência é confirmada pela unicidade: `totalItems == 1` para uma consulta de 13 dígitos é a loja identificando o produto; resposta ambígua não vira cotação. Cuidado com `price.pack`, que é preço por unidade em pacote fechado (4 un.) e não serve como preço avulso.
 2. **Araujo** — mesma política. O scraper usa a rota pública de catálogo VTEX e informa `blocked` para HTTP 401/403/429.
+
+### Droga Raia e Drogasil: por que saiu o `curl.exe`
+
+O storefront responde 403 a clientes HTTP comuns e entrega o HTML a quem se
+identifica como curl. Isso era feito chamando `curl.exe` por subprocesso, o que
+tinha dois defeitos: só funcionava no Windows e **falhava dentro do servidor**.
+O uvicorn roda em `SelectorEventLoop`, onde `asyncio.create_subprocess_exec`
+levanta `NotImplementedError` — então as duas redes funcionavam pela CLI e
+devolviam "Falha na comunicação de rede" pela API e pelo dashboard. Não era
+instabilidade: eram dois caminhos com comportamentos diferentes.
+
+`curl_cffi` (já era dependência do projeto e não era usada) faz a mesma
+requisição em processo. Não há impersonação de navegador: imitar Chrome é o que
+faz o WAF responder 403; identificar-se como curl é o que passa.
+
+Como o `__NEXT_DATA__` não traz EAN — só `sku`, nome e preço — vale aqui a mesma
+regra da Panvel: uma consulta por código de barras devolve **um** produto, uma
+busca por nome devolve treze, e só a resposta única autoriza a cotação.
 
 ### Garantia de correspondência exata por EAN
 Todas as redes VTEX (Preço Popular, São João, Pacheco, DPSP, Pague Menos, Farma Conde, Araujo) herdam de `app/scrapers/vtex.py` e consultam o catálogo pelo filtro `fq=alternateIds_Ean:<ean>`, que devolve correspondência exata.
