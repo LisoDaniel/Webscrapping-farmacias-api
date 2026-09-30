@@ -52,6 +52,12 @@ class ScraperService:
         a consulta. Repetir o primeiro não muda nada; repetir o segundo é
         insistir com quem acabou de pedir para parar. Ambos saem na primeira
         tentativa.
+
+        Há ainda o ``ERROR`` que não é falha técnica: captura vencida é estado
+        local e determinístico, e vai dar o mesmo resultado daqui a meio
+        segundo. O scraper marca esse caso com ``retryable=False`` e ele também
+        sai na primeira tentativa — repetir só atrasaria a varredura e encheria
+        o log de uma falha que não é de rede.
         """
         ultima: Optional[PriceQuote] = None
         for tentativa in range(1, self.retry_attempts + 1):
@@ -67,7 +73,7 @@ class ScraperService:
                     error_message=str(exc),
                 )
 
-            if cotacao.status != ScrapeStatusEnum.ERROR:
+            if cotacao.status != ScrapeStatusEnum.ERROR or not cotacao.retryable:
                 return cotacao
 
             ultima = cotacao

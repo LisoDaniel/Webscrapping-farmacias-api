@@ -38,6 +38,10 @@ class PriceQuote(BaseModel):
     status: ScrapeStatusEnum = ScrapeStatusEnum.SUCCESS
     error_message: Optional[str] = None
     scraped_at: datetime = Field(default_factory=datetime.now)
+    # Orienta o retry, não descreve o produto: um ERROR de estado local — como
+    # captura vencida — não melhora se repetido. Fica fora da serialização
+    # porque é assunto interno da coleta, não informação de relatório.
+    retryable: bool = Field(default=True, exclude=True)
 
 
 class ProductItem(BaseModel):

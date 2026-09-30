@@ -202,6 +202,17 @@ class PanvelAssistedCaptureTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(quote.status, ScrapeStatusEnum.ERROR)
         self.assertIn("Refaça a coleta", quote.error_message)
 
+    async def test_stale_capture_is_not_worth_retrying(self):
+        """A data do arquivo não muda entre tentativas; repetir só atrasa."""
+        self._escrever(datetime.now() - timedelta(hours=48), {EAN: payload_real([item_real()])})
+        quote = await self.scraper.search_by_ean(EAN)
+        self.assertFalse(quote.retryable)
+
+    async def test_a_network_failure_stays_retryable(self):
+        """A marcação é exceção: erro de transporte continua repetível."""
+        quote = self.scraper._result(ScrapeStatusEnum.ERROR, EAN, "conexão caiu")
+        self.assertTrue(quote.retryable)
+
     async def test_ambiguous_capture_is_not_quoted(self):
         """A regra de unicidade vale igual para o dado capturado."""
         self._escrever(

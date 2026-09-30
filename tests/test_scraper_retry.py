@@ -32,13 +32,14 @@ class ScraperFalso:
         return resposta
 
 
-def cotacao(status, price=None, error_message=None):
+def cotacao(status, price=None, error_message=None, retryable=True):
     return PriceQuote(
         pharmacy_key=PharmacyEnum.PANVEL,
         pharmacy_name="Farmácia de Teste",
         price=price,
         status=status,
         error_message=error_message,
+        retryable=retryable,
     )
 
 
@@ -86,6 +87,28 @@ class RetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scraper.chamadas, 1)
         self.assertEqual(self.esperas, [])
 
+    async def test_an_error_marked_as_permanent_is_not_retried(self):
+        """Captura vencida não é falha de rede: a data não muda em 0,6s."""
+        scraper, resultado = await self._executar(
+            [
+                cotacao(
+                    ScrapeStatusEnum.ERROR,
+                    error_message="A captura é de 08/09/2026 22:08 e passou do limite de 24h.",
+                    retryable=False,
+                )
+            ]
+        )
+        self.assertEqual(resultado.status, ScrapeStatusEnum.ERROR)
+        self.assertEqual(scraper.chamadas, 1)
+        self.assertEqual(self.esperas, [])
+        # O motivo tem de sobreviver: é a ação que o operador precisa tomar.
+        self.assertIn("passou do limite", resultado.error_message)
+
+    async def test_the_default_error_is_still_retried(self):
+        """A marcação é exceção; falha técnica continua sendo repetida."""
+        scraper, _ = await self._executar([cotacao(ScrapeStatusEnum.ERROR, error_message="timeout")])
+        self.assertEqual(scraper.chamadas, 3)
+
     async def test_gives_up_after_the_configured_attempts(self):
         scraper, resultado = await self._executar(
             [cotacao(ScrapeStatusEnum.ERROR, error_message="rede fora")]
@@ -115,6 +138,21 @@ class RetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(scraper.chamadas, 1)
         self.assertEqual(self.esperas, [])
         self.assertEqual(resultado.status, ScrapeStatusEnum.ERROR)
+
+
+class QuoteSerializationTests(unittest.TestCase):
+    """A marcação orienta a coleta; não é informação de relatório."""
+
+    def test_retryable_does_not_leak_into_the_report(self):
+        dados = cotacao(ScrapeStatusEnum.ERROR, retryable=False).model_dump()
+        self.assertNotIn("retryable", dados)
+        self.assertIn("status", dados)
+
+    def test_retryable_survives_a_model_copy(self):
+        """A Panvel redata a cotação com model_copy ao ler a captura."""
+        original = cotacao(ScrapeStatusEnum.ERROR, retryable=False)
+        copia = original.model_copy(update={"scraped_at": original.scraped_at})
+        self.assertFalse(copia.retryable)
 
 
 class BackoffTests(unittest.TestCase):

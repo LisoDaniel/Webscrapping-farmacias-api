@@ -90,6 +90,14 @@ acontecer — queda de rede, timeout, resposta ilegível — e repetir pode reso
 primeiro não muda nada e repetir o segundo é insistir com quem acabou de pedir
 para parar. Ambos saem na primeira tentativa.
 
+**Nem todo `ERROR` é falha técnica.** A captura vencida da Panvel gerava
+`ERROR` e, com isso, era repetida: a varredura esperava o backoff e o log
+registrava "tentativa 1/2 falhou" para uma condição que não muda entre
+tentativas — a data do arquivo é a mesma meio segundo depois. Agora a cotação
+carrega `retryable`, e o caso de captura vencida sai com `retryable=False`,
+direto na primeira tentativa. O campo não é serializado: orienta a coleta, não
+descreve o produto, e não tem por que aparecer no relatório nem na API.
+
 ### Droga Raia e Drogasil: por que saiu o `curl.exe`
 
 O storefront responde 403 a clientes HTTP comuns e entrega o HTML a quem se

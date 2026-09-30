@@ -59,6 +59,13 @@ arquitetura atual.
 O retry em `ScraperService` repete **apenas** `ERROR`. `NOT_FOUND` é resposta da
 loja e `BLOCKED` é a loja pedindo para parar — insistir seria martelar.
 
+Com uma ressalva: nem todo `ERROR` é falha técnica. Captura vencida é estado
+local e determinístico — vai dar o mesmo resultado meio segundo depois. Esses
+casos saem com `retryable=False` na cotação e também não são repetidos. Se o seu
+scraper distingue "não consegui perguntar" de "não tenho como perguntar", marque
+o segundo. O campo fica fora da serialização: orienta a coleta, não vai ao
+relatório.
+
 ---
 
 # Como adicionar uma nova farmácia

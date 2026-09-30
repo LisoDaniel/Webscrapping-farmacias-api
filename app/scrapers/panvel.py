@@ -72,6 +72,7 @@ class PanvelScraper(BaseScraper):
         status: ScrapeStatusEnum,
         ean: Optional[str] = None,
         error_message: Optional[str] = None,
+        retryable: bool = True,
     ) -> PriceQuote:
         return PriceQuote(
             pharmacy_key=self.pharmacy_key,
@@ -79,6 +80,7 @@ class PanvelScraper(BaseScraper):
             ean=ean,
             status=status,
             error_message=error_message,
+            retryable=retryable,
         )
 
     @staticmethod
@@ -251,7 +253,8 @@ class PanvelScraper(BaseScraper):
             captured = self.capture_store.get(self.pharmacy_key.value, ean)
         except CaptureExpired as exc:
             # Distinto de "sem captura": o operador tem uma ação clara a tomar.
-            return self._result(ScrapeStatusEnum.ERROR, ean, str(exc))
+            # E não adianta repetir: a data do arquivo não muda entre tentativas.
+            return self._result(ScrapeStatusEnum.ERROR, ean, str(exc), retryable=False)
         if captured is None:
             return None
 
