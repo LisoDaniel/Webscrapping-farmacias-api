@@ -151,11 +151,37 @@ Quando a rede bloqueia, há dois caminhos:
 - **Coleta assistida**: o operador roda a busca no próprio navegador com um
   script em `tools/`, baixa o JSON, e `CaptureStore` (`app/core/capture_store.py`)
   o entrega ao parser. É o caso da Panvel — ver `tools/captura_panvel.js`.
+  Marque o scraper com `requires_capture = True`: é isso que faz o painel do
+  dashboard cobrar a captura em vez de dar a rede como disponível.
 
 O `CaptureStore` é genérico por rede. Captura expira em
 `CAPTURE_MAX_AGE_HOURS` (24h) e a cotação é datada pelo **instante da captura**,
 não pelo da leitura — preço velho não pode entrar como atual. O dashboard mostra
 a idade na coluna "Observado".
+
+---
+
+# Painel "Onde é possível cotar"
+
+`AvailabilityService` (`app/services/availability_service.py`) alimenta o painel
+do dashboard e o `GET /api/v1/pharmacies`. A regra do projeto vale aqui também:
+**estar no registry não é estar disponível.** Cada linha declara de onde vem a
+afirmação — última validação, estado da captura ou política da rede — e o que
+não foi verificado aparece como `unverified`, nunca como verde.
+
+| Situação | Origem |
+| :--- | :--- |
+| `online` | A última validação obteve preço (ou `NOT_FOUND`, que também é a loja respondendo) |
+| `capture_only` | Há captura válida; a rede não aceita consulta direta |
+| `needs_capture` | Captura ausente ou vencida |
+| `restricted` | `ScraperValidationService.restricted_pharmacies` |
+| `failing` | A última validação só teve `ERROR`/`BLOCKED` |
+| `unverified` | Sem relatório, ou rede fora do último |
+
+A fonte é o `scraper_validation_*.json` mais recente em `reports/`. O botão
+**Revalidar** (`POST /api/v1/pharmacies/validate`) roda a validação com 1 EAN e
+grava um relatório novo — é o que dá informação nova ao painel em vez de repetir
+a anterior.
 
 ---
 

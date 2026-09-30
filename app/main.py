@@ -16,12 +16,14 @@ from app.models.client import ClientInfo, ClientScrapeRequest, ClientScrapeRespo
 from app.models.history import PriceHistoryItem, PriceHistorySummary
 from app.models.product import PharmacyEnum, SearchRequest, SearchResponse
 from app.scrapers.registry import ScraperRegistry
+from app.services.availability_service import AvailabilityReport, AvailabilityService
 from app.services.excel_service import ExcelService
 from app.services.scraper_service import ScraperService
 from app.services.cep_service import CepService
 from app.services.job_service import ScrapeJobService
 from app.services.report_export_service import ReportExportService
 from app.services.price_history_service import PriceHistoryService
+from app.services.validation_service import ScraperValidationService
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -53,6 +55,8 @@ app.add_middleware(
 scraper_service = ScraperService()
 job_service = ScrapeJobService()
 price_history_service = PriceHistoryService()
+availability_service = AvailabilityService()
+validation_service = ScraperValidationService(scraper_service)
 STATIC_DIR = Path(__file__).parent / "static"
 
 
@@ -81,14 +85,42 @@ async def health_check():
     }
 
 
-@app.get("/api/v1/pharmacies", tags=["Farmácias"])
+@app.get(
+    "/api/v1/pharmacies",
+    response_model=AvailabilityReport,
+    tags=["Farmácias"],
+)
 async def list_pharmacies():
-    """Lista todas as redes de farmácias cadastradas no sistema e seus status."""
-    pharmacies = ScraperRegistry.list_all()
-    return {
-        "total": len(pharmacies),
-        "pharmacies": pharmacies
-    }
+    """Lista as redes cadastradas e em quais delas é possível cotar agora.
+
+    A disponibilidade não vem do cadastro: vem da última validação, do estado da
+    captura do navegador ou da política que impede a consulta. Rede sem
+    confirmação aparece como não verificada.
+    """
+    return availability_service.build()
+
+
+@app.post(
+    "/api/v1/pharmacies/validate",
+    response_model=AvailabilityReport,
+    tags=["Farmácias"],
+)
+async def validate_pharmacies(
+    products: int = Query(1, ge=1, le=10, description="EANs de referência a consultar"),
+    cep: Optional[str] = None,
+):
+    """Consulta as redes com EANs de referência e devolve o painel atualizado.
+
+    Diferente do GET, este endpoint **vai à rede**: é o que dá ao painel uma
+    informação nova em vez de repetir a validação anterior. O padrão de um EAN
+    mantém a operação curta o suficiente para uso interativo.
+    """
+    try:
+        report = await validation_service.run_from_fixture(cep=cep, limit=products)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    ScraperValidationService.export(report)
+    return availability_service.build()
 
 
 @app.post("/api/v1/search", response_model=SearchResponse, tags=["Pesquisa de Preços"])

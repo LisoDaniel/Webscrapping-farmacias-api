@@ -38,6 +38,19 @@ class CapturedPayload:
     uf: Optional[str] = None
 
 
+@dataclass(frozen=True)
+class CaptureSnapshot:
+    """Estado do arquivo de captura de uma rede, para diagnóstico."""
+
+    pharmacy_key: str
+    path: Path
+    captured_at: Optional[datetime]
+    expires_at: Optional[datetime]
+    expired: bool
+    eans: int
+    uf: Optional[str] = None
+
+
 class CaptureExpired(Exception):
     """A captura existe, mas é velha demais para virar preço no relatório."""
 
@@ -126,5 +139,43 @@ class CaptureStore:
         return CapturedPayload(
             payload=payload,
             captured_at=captured_at,
+            uf=uf if isinstance(uf, str) else None,
+        )
+
+    def describe(self, pharmacy_key: str) -> Optional["CaptureSnapshot"]:
+        """Resume o arquivo de captura da rede, sem procurar um EAN específico.
+
+        O painel de disponibilidade precisa saber se há captura e até quando ela
+        vale; ``get`` só responde isso de carona em uma consulta de produto.
+        """
+        content = self._load(pharmacy_key)
+        if content is None:
+            return None
+
+        results = content.get("results")
+        eans = len(results) if isinstance(results, dict) else 0
+        uf = content.get("uf")
+        captured_at = self._parse_timestamp(content.get("captured_at"))
+        if captured_at is None:
+            # O arquivo existe, mas não há como datá-lo. Vale o mesmo que
+            # vencido: não podemos afirmar que o preço é recente.
+            return CaptureSnapshot(
+                pharmacy_key=pharmacy_key,
+                path=self._path(pharmacy_key),
+                captured_at=None,
+                expires_at=None,
+                expired=True,
+                eans=eans,
+                uf=uf if isinstance(uf, str) else None,
+            )
+
+        expires_at = captured_at + timedelta(hours=self.max_age_hours)
+        return CaptureSnapshot(
+            pharmacy_key=pharmacy_key,
+            path=self._path(pharmacy_key),
+            captured_at=captured_at,
+            expires_at=expires_at,
+            expired=datetime.now() > expires_at,
+            eans=eans,
             uf=uf if isinstance(uf, str) else None,
         )

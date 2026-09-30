@@ -15,12 +15,25 @@
     table { width: 100%; border-collapse: collapse; margin-top: 1rem; } th, td { padding: .65rem; text-align: left; border-bottom: 1px solid #e4ebf2; }
     th { color: #426680; } .ok { color: #18784a; } .warn { color: #9b6513; } .error { color: #a52323; }
     #message { min-height: 1.3rem; margin-top: .8rem; } a { color: #1f4e79; }
+    .head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; } .head h2 { margin: 0; }
+    .head button { padding: .45rem .9rem; } .sub { font-size: .95rem; }
+    .tag { display: inline-block; padding: .15rem .55rem; border-radius: 20px; font-size: .8rem; font-weight: 700; white-space: nowrap; }
+    .tag.on { background: #e1f4ea; color: #18784a; } .tag.hold { background: #fbefdb; color: #9b6513; } .tag.off { background: #f8e3e3; color: #a52323; }
+    #availability td:last-child { color: #587085; font-size: .9rem; }
     @media (max-width: 700px) { form { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body><main>
   <h1>Comparador de preços</h1>
   <p class="sub">Instituto Bulla · consulta de redes de farmácia e planilhas de clientes</p>
+  <section>
+    <div class="head">
+      <h2>Onde é possível cotar</h2>
+      <button id="revalidate" type="button" title="Consulta as redes com um EAN de referência">Revalidar</button>
+    </div>
+    <p id="availability-summary" class="sub">Carregando situação das redes…</p>
+    <table id="availability"><thead><tr><th>Rede</th><th>Situação</th><th>Como está agora</th></tr></thead><tbody></tbody></table>
+  </section>
   <section>
     <h2>Consultar produto</h2>
     <form id="search-form">
@@ -55,6 +68,43 @@ function idadeCotacao(iso) {
   if (minutos < 90) return {texto: `há ${Math.round(minutos)} min`, antiga: true};
   return {texto: `há ${Math.round(minutos / 60)} h`, antiga: true};
 }
+// Cada situação diz de onde vem a afirmação: cotação direta, captura do
+// navegador, política da rede ou simples falta de verificação. Rede cadastrada
+// não é rede disponível — por isso "não verificada" não vira verde.
+const SITUACAO = {
+  online:        {rotulo: 'Disponível',            classe: 'on'},
+  capture_only:  {rotulo: 'Disponível por captura', classe: 'on'},
+  needs_capture: {rotulo: 'Precisa de captura',    classe: 'hold'},
+  unverified:    {rotulo: 'Não verificada',        classe: 'hold'},
+  restricted:    {rotulo: 'Não autorizada',        classe: 'off'},
+  failing:       {rotulo: 'Falhando',              classe: 'off'},
+};
+function pintarDisponibilidade(data) {
+  const quando = data.validated_at ? new Date(data.validated_at).toLocaleString('pt-BR') : null;
+  document.querySelector('#availability-summary').textContent =
+    `${data.quotable} de ${data.total} redes disponíveis para cotação` +
+    (quando ? ` · última verificação em ${quando}` : ' · nenhuma verificação nesta instalação, use Revalidar');
+  document.querySelector('#availability tbody').innerHTML = data.pharmacies.map(p => {
+    const s = SITUACAO[p.availability] || {rotulo: p.availability, classe: 'hold'};
+    return `<tr><td><a href="${escapeHtml(p.base_url)}" target="_blank" rel="noopener">${escapeHtml(p.name)}</a></td>` +
+      `<td><span class="tag ${s.classe}">${escapeHtml(s.rotulo)}</span></td><td>${escapeHtml(p.detail)}</td></tr>`;
+  }).join('');
+}
+async function loadAvailability() {
+  try { pintarDisponibilidade(await (await fetch(`${api}/pharmacies`)).json()); }
+  catch { document.querySelector('#availability-summary').textContent = 'Não foi possível ler a situação das redes.'; }
+}
+document.querySelector('#revalidate').onclick = async event => {
+  const botao = event.currentTarget, resumo = document.querySelector('#availability-summary');
+  botao.disabled = true; resumo.textContent = 'Consultando as redes com um EAN de referência…';
+  try {
+    const response = await fetch(`${api}/pharmacies/validate`, {method: 'POST'});
+    const data = await response.json();
+    if (!response.ok) { resumo.textContent = data.detail || 'A revalidação falhou.'; return; }
+    pintarDisponibilidade(data);
+  } catch { resumo.textContent = 'A revalidação não completou; a situação exibida é a anterior.'; }
+  finally { botao.disabled = false; }
+};
 async function loadClients() {
   const response = await fetch(`${api}/clients`); const clients = await response.json();
   document.querySelector('#clients').innerHTML = clients.map(c => `<tr><td>${escapeHtml(c.client_name)}</td><td>${escapeHtml(c.city || '-')}/${escapeHtml(c.state || '-')}</td><td>${c.total_products}</td><td><button data-folder="${escapeHtml(c.folder_name)}">Gerar relatórios</button></td></tr>`).join('');
@@ -75,5 +125,6 @@ document.querySelector('#search-form').onsubmit = async event => { event.prevent
     return `<tr><td>${escapeHtml(q.pharmacy_name)}</td><td>${escapeHtml(q.product_name||'-')}</td><td>${q.price == null ? '-' : 'R$ '+q.price.toFixed(2)}</td><td class="${idade.antiga ? 'warn' : ''}" title="${idade.antiga ? 'Preço vindo de captura no navegador, não de consulta ao vivo' : ''}">${escapeHtml(idade.texto)}</td><td class="${q.status === 'success' ? 'ok' : q.status === 'blocked' ? 'warn' : 'error'}">${escapeHtml(q.status)}</td><td>${q.product_url ? `<a href="${escapeHtml(q.product_url)}" target="_blank" rel="noopener">Abrir</a>` : '-'}</td></tr>`; }).join(''); document.querySelector('#results').hidden = false;
 };
 document.querySelector('#upload-form').onsubmit = async event => { event.preventDefault(); const form = new FormData(); form.append('client_name', document.querySelector('#client-name').value); form.append('file', document.querySelector('#file').files[0]); const response = await fetch(`${api}/clients/upload`, {method:'POST',body:form}); const data = await response.json(); document.querySelector('#clients-message').textContent = response.ok ? 'Planilha enviada.' : (data.detail || 'Falha no envio.'); if(response.ok) loadClients(); };
+loadAvailability();
 loadClients();
 </script></body></html>

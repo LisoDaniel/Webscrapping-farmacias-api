@@ -13,6 +13,9 @@ class BaseScraper(abc.ABC):
     pharmacy_key: PharmacyEnum
     name: str
     base_url: str
+    # Rede que só entrega preço por coleta assistida no navegador, porque recusa
+    # cliente automatizado. Ver app/core/capture_store.py e tools/.
+    requires_capture: bool = False
 
     def __init__(self, timeout: Optional[float] = None):
         self.timeout = timeout or settings.SCRAPER_TIMEOUT_SECONDS

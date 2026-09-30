@@ -17,11 +17,13 @@ para um código de 13 dígitos é a loja identificando o item. Resposta ambígua
 não vira cotação. Atenção a ``price.pack``, que traz o preço por unidade em
 pacote fechado e não serve como preço avulso.
 
-O que impede a coleta automatizada é o bot manager da Azion, que fica na frente
-do domínio. Um navegador recebe HTTP 200; um cliente automatizado recebe 404,
-mesmo com a URL e o ``app-token`` corretos. O 404 é sintético, não é rota
-inexistente. As assinaturas do controle aparecem na resposta ao navegador: os
-cookies ``az_botm`` e ``az_asm`` e os cabeçalhos ``x-azion-*``.
+O que impede a coleta automatizada é o bot manager na frente do domínio. Em
+08/09/2026 ele era o da Azion e devolvia HTTP 404 sintético — rota existente
+disfarçada de inexistente, com os cookies ``az_botm``/``az_asm`` e os cabeçalhos
+``x-azion-*`` na resposta ao navegador. Em 25/09/2026 a recusa passou a ser
+explícita: HTTP 403 com página "Access Denied" e número de referência, igual
+para qualquer cliente fora do navegador. Por isso os dois códigos continuam
+tratados abaixo.
 
 Passar por ele exigiria reproduzir o cabeçalho ``finger-print`` e replicar
 aqueles cookies — sinais que existem só para separar humano de robô. Isso é
@@ -56,6 +58,7 @@ class PanvelScraper(BaseScraper):
     name = "Panvel"
     base_url = "https://www.panvel.com"
     search_path = "/api/v3/search"
+    requires_capture = True
     # Identifica a aplicação do storefront, não uma pessoa: vai embutido no
     # bundle e é idêntico para todo visitante.
     app_token = "ZYkPuDaVJEiD"

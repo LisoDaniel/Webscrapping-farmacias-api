@@ -36,12 +36,14 @@ Documento de acompanhamento do desenvolvimento da ferramenta e API de Web Scrapi
 | :--- | :---: | :--- | :--- |
 | **Drogarias Pacheco** | ~~Alta~~ | VTEX Intelligent Search. | ✅ **CONCLUÍDO** |
 | **Drogaria São Paulo (DPSP)** | ~~Média~~ | Pertence ao grupo Pacheco — herdou o scraper. | ✅ **CONCLUÍDO** |
-| **Panvel Farmácias** | ~~Alta~~ | Bot manager da Azion devolve HTTP 404 sintético para cliente automatizado. | ✅ **COLETA ASSISTIDA** — validada com preços reais em 08/09/2026 |
+| **Panvel Farmácias** | ~~Alta~~ | Bot manager recusa cliente automatizado (HTTP 403 em 25/09/2026; era 404 sintético em 08/09). | ✅ **COLETA ASSISTIDA** — validada com preços reais em 08/09/2026; depende de captura vigente |
 | **Farmácias Araujo** | **Média** | Consulta VTEX implementada com identificação de WAF. A rede responde HTTP 403. | 🟡 Implementado; bloqueado externamente até haver canal/API autorizado |
 | **Farma Conde** | ~~Alta~~ | Catálogo VTEX público. | ✅ **CONCLUÍDO** — validado por EAN exato |
 
 ### Operação e manutenção dos scrapers
-1. **Panvel** — a rota está viva e correta: `POST /api/v3/search?type=CSR&uf=<UF>`, com o termo no corpo JSON e preços regionais por UF. O que bloqueia é o **bot manager da Azion**, que fica na frente do domínio: um navegador recebe HTTP 200; um cliente automatizado recebe 404, mesmo com a URL e o `app-token` corretos. O 404 é sintético, não é rota inexistente — as assinaturas do controle são os cookies `az_botm`/`az_asm` e os cabeçalhos `x-azion-*` na resposta ao navegador.
+1. **Panvel** — a rota está viva e correta: `POST /api/v3/search?type=CSR&uf=<UF>`, com o termo no corpo JSON e preços regionais por UF. O que bloqueia é o **bot manager** na frente do domínio.
+
+   **A forma do bloqueio mudou.** Em 08/09/2026 era o bot manager da Azion, que devolvia HTTP 404 sintético — rota existente disfarçada de inexistente, com os cookies `az_botm`/`az_asm` e os cabeçalhos `x-azion-*` na resposta ao navegador. Verificado em **25/09/2026**, a recusa passou a ser explícita: HTTP 403 com página "Access Denied" e número de referência. Testado com três identificações honestas (sem User-Agent, `curl/8.4.0` e um User-Agent próprio identificando o bot do Instituto Bulla): as três recebem 403. O que funcionou para Raia e Drogasil — identificar-se como curl — **não funciona aqui**; o bloqueio não depende de como o cliente se apresenta. Passar por ele exigiria impersonação de navegador, que é o que o projeto não faz.
 
    Passar por ele exigiria reproduzir o cabeçalho `finger-print` e replicar aqueles cookies, sinais que existem só para separar humano de robô. Isso é derrotar um controle de acesso, não integrar com um serviço, e por isso não é feito aqui — mesmo critério da Araujo. O `app-token` é enviado por identificar a aplicação do storefront (é público e igual para todo visitante); o `user-id` fica de fora porque identifica uma conta pessoal, e associá-la a tráfego automatizado é risco para o titular.
 
@@ -136,6 +138,16 @@ O índice de texto livre `ft=` **não** cobre EAN em todas as lojas — era por 
     de `scrape_runs.state` e derrubava a varredura **antes** de gerar o
     relatório. Sem `--cep`, `scrape-client` não funcionava para nenhum cliente;
     com `--cep` o ViaCEP devolvia a sigla e o defeito passava despercebido.
+- [x] **Painel de disponibilidade no dashboard**:
+  - Seção "Onde é possível cotar" com a situação de cada rede e o motivo, para
+    o consultor saber onde a pesquisa é possível antes de tentar.
+  - `GET /api/v1/pharmacies` passou a responder disponibilidade, não só cadastro:
+    a informação vem da última validação em `reports/`, do estado da captura em
+    `capturas/` ou da política que impede a consulta. Rede sem confirmação
+    aparece como **não verificada** — o painel não promete o que não checou.
+  - O botão **Revalidar** (`POST /api/v1/pharmacies/validate`) consulta as redes
+    com um EAN de referência e grava um relatório novo. Sem ele, o painel só
+    repetiria a última validação, que pode ser de semanas atrás.
 - [ ] **Ampliar o acervo de farmácias consultadas**:
   - Mapear novas redes regionais e nacionais, priorizando catálogos públicos ou APIs/feed de preços autorizados.
   - Validar cada integração por EAN e CEP antes de liberá-la para as varreduras de clientes.
