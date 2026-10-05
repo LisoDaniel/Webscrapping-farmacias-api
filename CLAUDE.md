@@ -11,11 +11,17 @@ uv run python -m app.cli list-clients                          # clientes detect
 uv run python -m app.cli search --ean 7891058003555            # consulta avulsa
 uv run python -m app.cli scrape-client --folder "1167 CARIN"   # varredura + relatório
 uv run python -m app.cli validate-scrapers                     # diagnóstico das integrações
-uv run uvicorn app.main:app --reload --port 8000               # API + /dashboard
+uv run python -m uvicorn app.main:app --reload --port 8000     # API + /dashboard
 .venv/Scripts/python.exe -m unittest discover -s tests -t .    # suíte (Windows)
 ```
 
 `validate-scrapers` é a forma mais rápida de ver quais redes estão de pé.
+
+**Sempre `python -m <ferramenta>`, nunca o atalho.** Os `.exe` de `.venv/Scripts/`
+são gerados na instalação e não têm assinatura, então o Smart App Control do
+Windows 11 se recusa a executá-los (`os error 4551`). O `python.exe` passa por
+vir do instalador assinado. Não troque por `uv run uvicorn` achando que é a
+mesma coisa — não é, e quebra sem dizer o motivo real.
 
 ---
 

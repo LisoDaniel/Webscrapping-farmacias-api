@@ -53,8 +53,21 @@ preço velho não entra no relatório como se fosse atual.
 
 ### 1. Iniciar o Servidor API (FastAPI)
 ```bash
-uv run uvicorn app.main:app --reload --port 8000
+uv run python -m uvicorn app.main:app --reload --port 8000
 ```
+
+É `python -m uvicorn`, e não `uvicorn` direto, de propósito. O atalho
+`.venv\Scripts\uvicorn.exe` é gerado na máquina no momento da instalação, então
+não carrega assinatura de ninguém — e o Smart App Control do Windows 11 recusa
+executá-lo (`Failed to spawn: uvicorn — Uma política de Controle de Aplicativo
+bloqueou este arquivo`). Chamar pelo módulo usa o `python.exe`, que vem assinado
+do instalador oficial. A forma com módulo funciona em qualquer máquina, com ou
+sem essa política; a com atalho, não.
+
+Vale o mesmo para qualquer outro comando de terminal instalado por dependência
+(`python -m pip`, `python -m pytest`). Os comandos da CLI do projeto já são por
+módulo e não mudam.
+
 Acesse a documentação Swagger interativa em:
 👉 [http://localhost:8000/docs](http://localhost:8000/docs)
 
